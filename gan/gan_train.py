@@ -441,12 +441,19 @@ class Discriminator(nn.Module):
 # Losses
 
 
-def d_hinge(real_pred, fake_pred):
-    return torch.relu(1.0 - real_pred).mean() + torch.relu(1.0 + fake_pred).mean()
+# Non-saturating logistic loss (StyleGAN2 / StyleGAN2-ADA). The hinge loss
+# used in the mask-supervised runs has zero gradient outside its margins:
+# once D separates real/fake by more than 1 (normal in the first epochs of
+# unconditional training, where G has no mask supervision to ground it), D
+# receives no corrective data gradient at all and d_loss sits at exactly 0.
+# Softplus is smooth everywhere: D always gets a small restoring gradient,
+# and G's gradient is strongest precisely when it is losing.
+def d_logistic(real_pred, fake_pred):
+    return F.softplus(-real_pred).mean() + F.softplus(fake_pred).mean()
 
 
-def g_hinge(fake_pred):
-    return -fake_pred.mean()
+def g_nonsat(fake_pred):
+    return F.softplus(-fake_pred).mean()
 
 
 def r1_penalty(real_pred, real_img):
@@ -702,7 +709,7 @@ def train(end_epoch, resume=False, checkpoint_path=None):
 
             with autocast():
                 fake_pred = D(fake_aug)
-                d_loss = d_hinge(real_pred.float(), fake_pred.float())
+                d_loss = d_logistic(real_pred.float(), fake_pred.float())
 
             # R1 on non-augmented reals, float32, lazy with interval scaling
             if global_step % cfg.r1_interval == 0:
@@ -711,8 +718,10 @@ def train(end_epoch, resume=False, checkpoint_path=None):
                 r1 = r1_penalty(real_pred_r1, real_imgs_r1)
                 d_loss = d_loss + cfg.r1_gamma * 0.5 * cfg.r1_interval * r1
 
-            # D-collapse trip-wire (failsafe only; the causal protections are
-            # TTUR lr_d and ADA with geometric augmentations)
+            # D-collapse trip-wire (failsafe only). With the logistic loss,
+            # d_loss < 1e-4 requires |logits| > ~9 on every sample for 100
+            # consecutive steps, i.e. genuine divergence, not the normal
+            # early-training phase where D leads.
             if d_loss.item() < 1e-4:
                 d_collapse_counter += 1
                 if d_collapse_counter > 100:
@@ -739,7 +748,7 @@ def train(end_epoch, resume=False, checkpoint_path=None):
             with autocast():
                 fake_pred, fake_feats = D(fake_aug, return_features=True)
 
-            g_adv = g_hinge(fake_pred.float())
+            g_adv = g_nonsat(fake_pred.float())
 
             perc_loss = torch.tensor(0.0, device=cfg.device)
             if vgg is not None:
