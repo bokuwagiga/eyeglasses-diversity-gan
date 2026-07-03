@@ -1,0 +1,16 @@
+# Core
+torch>=2.2
+torchvision>=0.17
+numpy>=1.26,<3.0
+pillow>=10.0,<12.0
+scipy>=1.11,<2.0
+opencv-python>=4.9,<5.0
+matplotlib>=3.8,<4.0
+pandas>=2.0,<3.0
+tqdm>=4.66
+
+# Metrics
+torchmetrics[image]>=1.3   # FID, KID, IS
+lpips>=0.1.4
+scikit-learn>=1.4          # clustering / descriptor analysis
+scikit-image>=0.22         # contour / shape descriptors

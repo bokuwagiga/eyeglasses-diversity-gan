@@ -1,0 +1,10 @@
+.venv/
+.idea/
+__pycache__/
+*.pyc
+data/*
+!data/README.md
+results/
+*.pth
+*.ckpt
+.ipynb_checkpoints/

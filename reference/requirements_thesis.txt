@@ -1,0 +1,8 @@
+numpy>=1.26,<3.0
+matplotlib>=3.8,<4.0
+pillow>=10.0,<12.0
+scipy>=1.11,<2.0
+opencv-python>=4.9,<5.0
+
+
+python gan_train.py --images ./data/source/images/ --masks ./data/source/masks/ --output results/gan_mapping8 --end-epoch 350 --no-resume
