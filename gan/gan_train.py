@@ -54,7 +54,11 @@ class Config:
 
     batch_size = 32
     lr_g = 0.0002    # generator learning rate
-    lr_d = 0.0001    # discriminator learning rate (20260515 used 5e-5: too weak)
+    # TTUR: D must learn slower than G. Without the mask supervision that
+    # grounded G early in the thesis runs, lr_d=1e-4 let D saturate within
+    # 3 epochs (hinge d_loss -> 0, G diverging). 5e-5 was stable for the
+    # full 400 epochs of the 20260515 run.
+    lr_d = 0.00005
     beta1 = 0.0
     beta2 = 0.99
 
@@ -520,6 +524,18 @@ class ADAugment:
         if flip.any():
             imgs = torch.where(flip.view(B, 1, 1, 1), imgs.flip(-1), imgs)
 
+        # Integer-pixel translation, per-sample (geometric augmentations are
+        # the most effective category in the ADA paper; without them ADA
+        # cannot restrain D once rt exceeds the target)
+        H, W = imgs.shape[2], imgs.shape[3]
+        max_ty, max_tx = int(H * 0.125), int(W * 0.125)
+        for b in range(B):
+            if random.random() < self.p:
+                ty = random.randint(-max_ty, max_ty)
+                tx = random.randint(-max_tx, max_tx)
+                if ty != 0 or tx != 0:
+                    imgs[b] = torch.roll(imgs[b], shifts=(ty, tx), dims=(1, 2))
+
         # Brightness jitter, per-sample
         bright = (torch.rand(B, device=device) < self.p).view(B, 1, 1, 1)
         scale = 1.0 + (torch.rand(B, 1, 1, 1, device=device) - 0.5) * 0.4
@@ -622,8 +638,8 @@ def train(end_epoch, resume=False, checkpoint_path=None):
 
     history = {
         'epoch': [], 'g_loss': [], 'd_loss': [], 'perc_loss': [], 'fm_loss': [],
-        'g_total': [], 'd_real': [], 'd_fake': [], 'ada_p': [], 'kid': [],
-        'epoch_sec': [], 'total_hrs': [],
+        'g_total': [], 'd_real': [], 'd_fake': [], 'ada_p': [],
+        'kid': [], 'epoch_sec': [], 'total_hrs': [],
     }
 
     best_kid = float('inf')
@@ -695,7 +711,8 @@ def train(end_epoch, resume=False, checkpoint_path=None):
                 r1 = r1_penalty(real_pred_r1, real_imgs_r1)
                 d_loss = d_loss + cfg.r1_gamma * 0.5 * cfg.r1_interval * r1
 
-            # D-collapse trip-wire
+            # D-collapse trip-wire (failsafe only; the causal protections are
+            # TTUR lr_d and ADA with geometric augmentations)
             if d_loss.item() < 1e-4:
                 d_collapse_counter += 1
                 if d_collapse_counter > 100:
@@ -840,7 +857,8 @@ def train(end_epoch, resume=False, checkpoint_path=None):
               f'G={sums["g"] / n_batches:.4f}  D={sums["d"] / n_batches:.4f}  '
               f'FM={sums["fm"] / n_batches:.4f}  '
               f'Dreal={sums["dr"] / n_batches:+.3f}  Dfake={sums["df"] / n_batches:+.3f}  '
-              f'ADA_p={ada.p:.3f}{kid_str}  {epoch_time:.0f}s  ({total_hours:.1f}h total)')
+              f'ADA_p={ada.p:.3f}{kid_str}  '
+              f'{epoch_time:.0f}s  ({total_hours:.1f}h total)')
 
         save_metrics(history)
 
