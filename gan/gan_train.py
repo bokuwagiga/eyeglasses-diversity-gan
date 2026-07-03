@@ -183,15 +183,45 @@ class PixelNorm(nn.Module):
         return x / torch.sqrt(torch.mean(x ** 2, dim=1, keepdim=True) + 1e-8)
 
 
+class EqualLinear(nn.Module):
+    """Linear layer with equalized learning rate (StyleGAN).
+
+    Weights are stored as N(0, 1)/lr_mul and scaled by lr_mul/sqrt(fan_in) at
+    runtime. This keeps activation variance constant across depth and gives
+    the layer an effective learning rate of lr_mul * optimizer lr. With plain
+    nn.Linear default init, an 8-layer LeakyReLU MLP shrinks its output std
+    to ~0.02, collapsing w-space so that styles carry almost no information
+    (measured on this network; also the likely cause of the 20260515 run's
+    low colour diversity). The official mapping network uses lr_mul=0.01.
+    """
+
+    def __init__(self, in_dim, out_dim, lr_mul=1.0):
+        super().__init__()
+        self.weight = nn.Parameter(torch.randn(out_dim, in_dim) / lr_mul)
+        self.bias = nn.Parameter(torch.zeros(out_dim))
+        self.scale = lr_mul / math.sqrt(in_dim)
+        self.lr_mul = lr_mul
+
+    def forward(self, x):
+        return F.linear(x, self.weight * self.scale, self.bias * self.lr_mul)
+
+
+class ScaledLeakyReLU(nn.Module):
+    """LeakyReLU(0.2) with the sqrt(2) gain that keeps variance constant."""
+
+    def forward(self, x):
+        return F.leaky_relu(x, 0.2) * math.sqrt(2.0)
+
+
 class MappingNetwork(nn.Module):
-    """Noise z -> style code w via a pixel-normalised MLP."""
+    """Noise z -> style code w via a pixel-normalised, equalized-lr MLP."""
 
     def __init__(self, z_dim, w_dim, depth=8):
         super().__init__()
         layers = [PixelNorm()]
         for _ in range(depth):
-            layers.append(nn.Linear(z_dim, w_dim))
-            layers.append(nn.LeakyReLU(0.2))
+            layers.append(EqualLinear(z_dim, w_dim, lr_mul=0.01))
+            layers.append(ScaledLeakyReLU())
             z_dim = w_dim
         self.net = nn.Sequential(*layers)
 
@@ -349,7 +379,12 @@ class Generator(nn.Module):
             rgb_out = rgb_layer(x, w_i)
             rgb = rgb_out if rgb is None else self.upsample(rgb) + rgb_out
 
-        return torch.tanh(rgb)
+        # Linear RGB output (official StyleGAN2). A tanh here saturates within
+        # a few optimizer steps on this data: the near-white catalogue
+        # backgrounds push most pixels to +1, where tanh has zero gradient,
+        # freezing the generator (measured: 99.5% of pixels saturated and
+        # G grad norm ~0 after 10 steps of regression toward a white image).
+        return rgb
 
     def forward(self, z, style_mixing_prob=0.0):
         w = self.get_w(z)  # (B, w_dim)
@@ -546,11 +581,13 @@ class ADAugment:
         # Brightness jitter, per-sample
         bright = (torch.rand(B, device=device) < self.p).view(B, 1, 1, 1)
         scale = 1.0 + (torch.rand(B, 1, 1, 1, device=device) - 0.5) * 0.4
-        imgs = torch.where(bright, (imgs * scale).clamp(-1.0, 1.0), imgs)
+        # No clamping (official ADA): clamps zero the gradient for
+        # out-of-range pixels and assume bounded G output.
+        imgs = torch.where(bright, imgs * scale, imgs)
 
         # Gaussian noise, per-sample
         noisy = (torch.rand(B, device=device) < self.p * 0.5).view(B, 1, 1, 1)
-        imgs = torch.where(noisy, (imgs + 0.05 * torch.randn_like(imgs)).clamp(-1.0, 1.0), imgs)
+        imgs = torch.where(noisy, imgs + 0.05 * torch.randn_like(imgs), imgs)
 
         # Cutout, per-sample
         H, W = imgs.shape[2], imgs.shape[3]
@@ -813,8 +850,9 @@ def train(end_epoch, resume=False, checkpoint_path=None):
             G.eval()
 
             eval_imgs = G(fixed_z)
-            save_image(eval_imgs, str(SAMPLES_DIR / f'epoch_{epoch + 1:04d}_imgs.png'),
-                       nrow=4, normalize=True)
+            save_image(eval_imgs.clamp(-1, 1),
+                       str(SAMPLES_DIR / f'epoch_{epoch + 1:04d}_imgs.png'),
+                       nrow=4, normalize=True, value_range=(-1, 1))
 
             if (epoch + 1) >= cfg.kid_start and \
                     (epoch + 1 - cfg.kid_start) % cfg.kid_interval == 0:
@@ -969,8 +1007,9 @@ def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=3
                 imgs = G.synthesis(w_batch)
 
                 for j in range(bs):
-                    save_image(imgs[j], str(img_dir / f'glass_{generated + j:05d}.png'),
-                               normalize=True)
+                    save_image(imgs[j].clamp(-1, 1),
+                               str(img_dir / f'glass_{generated + j:05d}.png'),
+                               normalize=True, value_range=(-1, 1))
                     meta_file.write(rows[j])
 
                 generated += bs
