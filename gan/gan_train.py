@@ -585,6 +585,34 @@ class ADAugment:
         # out-of-range pixels and assume bounded G output.
         imgs = torch.where(bright, imgs * scale, imgs)
 
+        # Saturation jitter, per-sample: scale distance from per-pixel luma.
+        # Colour augmentations stop D from keying on the exact frame colours
+        # of the small training set, which otherwise pushes G toward the
+        # dominant colour modes (low a*b* coverage in the diversity reports).
+        luma_w = torch.tensor([0.299, 0.587, 0.114], device=device).view(1, 3, 1, 1)
+        sat = (torch.rand(B, device=device) < self.p).view(B, 1, 1, 1)
+        sat_scale = 1.0 + (torch.rand(B, 1, 1, 1, device=device) - 0.5) * 1.0
+        luma = (imgs * luma_w).sum(1, keepdim=True)
+        imgs = torch.where(sat, luma + sat_scale * (imgs - luma), imgs)
+
+        # Hue rotation, per-sample: rotate RGB about the (1,1,1) luma axis
+        # (Rodrigues formula), the official ADA colour transform. Applied
+        # with probability < 1, so the true colour distribution stays
+        # identifiable (ADA non-leakage argument).
+        hue = torch.rand(B, device=device) < self.p
+        if hue.any():
+            theta = (torch.rand(B, device=device) * 2.0 - 1.0) * math.pi
+            theta = torch.where(hue, theta, torch.zeros_like(theta))
+            c = theta.cos().view(B, 1, 1)
+            s = theta.sin().view(B, 1, 1)
+            v = 1.0 / math.sqrt(3.0)
+            eye = torch.eye(3, device=device).unsqueeze(0)
+            vvt = torch.full((1, 3, 3), v * v, device=device)
+            K = torch.tensor([[0.0, -v, v], [v, 0.0, -v], [-v, v, 0.0]],
+                             device=device).unsqueeze(0)
+            R = c * eye + s * K + (1.0 - c) * vvt  # (B, 3, 3)
+            imgs = torch.einsum('bij,bjhw->bihw', R, imgs)
+
         # Gaussian noise, per-sample
         noisy = (torch.rand(B, device=device) < self.p * 0.5).view(B, 1, 1, 1)
         imgs = torch.where(noisy, imgs + 0.05 * torch.randn_like(imgs), imgs)
@@ -1055,6 +1083,8 @@ if __name__ == '__main__':
     parser.add_argument('--d-width-mult', type=float, default=1.0,
                         help='Discriminator channel width multiplier')
     parser.add_argument('--ada-target', type=float, default=Config.ada_target)
+    parser.add_argument('--ada-max-p', type=float, default=Config.ada_max_p,
+                        help='Upper limit for the ADA augmentation probability')
     parser.add_argument('--kid-start', type=int, default=Config.kid_start)
     parser.add_argument('--num-workers', type=int, default=Config.num_workers)
     parser.add_argument('--seed', type=int, default=Config.seed)
@@ -1072,6 +1102,7 @@ if __name__ == '__main__':
     cfg.mapping_depth = args.mapping_depth
     cfg.d_width_mult = args.d_width_mult
     cfg.ada_target = args.ada_target
+    cfg.ada_max_p = args.ada_max_p
     cfg.kid_start = args.kid_start
     cfg.num_workers = args.num_workers
     cfg.seed = args.seed
