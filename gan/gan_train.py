@@ -498,7 +498,15 @@ def r1_penalty(real_pred, real_img):
 
 
 class VGGPerceptualLoss(nn.Module):
-    """Frozen VGG16 features at relu1_2, relu2_2, relu3_3."""
+    """Frozen VGG16 features at relu1_2, relu2_2, relu3_3.
+
+    Each fake is compared against its NEAREST real in the batch (nearest in
+    deep VGG feature space, selection under no_grad) instead of a randomly
+    paired one. Minimizing distance to a random real pulls every fake toward
+    the dataset mean in expectation, a mode-averaging force that suppresses
+    diversity; pulling toward the nearest real keeps the "look like a
+    catalogue photo" gradient while letting each fake stay in its own mode.
+    """
 
     def __init__(self):
         super().__init__()
@@ -517,12 +525,24 @@ class VGGPerceptualLoss(nn.Module):
     def forward(self, pred, target):
         p = self._normalize(pred)
         t = self._normalize(target)
-        loss = 0.0
-        for layer, w in [(self.slice1, 1.0), (self.slice2, 1.0), (self.slice3, 0.5)]:
+        p_feats, t_feats = [], []
+        for layer in [self.slice1, self.slice2, self.slice3]:
             p = layer(p)
             with torch.no_grad():
                 t = layer(t)
-            loss += w * F.l1_loss(p, t)
+            p_feats.append(p)
+            t_feats.append(t)
+
+        # Match each fake to the closest real in the batch using pooled
+        # deepest-slice features (cheap: B x B distances on B x C vectors).
+        with torch.no_grad():
+            pv = p_feats[-1].mean([2, 3]).float()
+            tv = t_feats[-1].mean([2, 3]).float()
+            match = torch.cdist(pv, tv).argmin(dim=1)
+
+        loss = 0.0
+        for pf, tf, w in zip(p_feats, t_feats, [1.0, 1.0, 0.5]):
+            loss += w * F.l1_loss(pf, tf[match])
         return loss
 
 
