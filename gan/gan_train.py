@@ -98,6 +98,7 @@ class Config:
     ada_interval = 4
     ada_step = 0.002     # 20260515 used 0.001; slightly faster adaptation
     ada_max_p = 0.85
+    ada_color_max_p = 0.85  # separate ceiling for saturation/hue augmentation
 
     num_workers = 2
     seed = 42
@@ -557,11 +558,17 @@ class ADAugment:
     and fake images before D sees them.
     """
 
-    def __init__(self, target=0.6, step=0.002, max_p=0.85, interval=4):
+    def __init__(self, target=0.6, step=0.002, max_p=0.85, interval=4,
+                 color_max_p=None):
         self.target = target
         self.step = step
         self.max_p = max_p
         self.interval = interval
+        # Colour augmentations (saturation/hue) can leak the frame-colour
+        # distribution into D less than pixel/geometric ones do, and can
+        # also suppress G's own colour diversity if driven too hard; keep
+        # a separate, independently tunable ceiling for them.
+        self.color_max_p = max_p if color_max_p is None else color_max_p
         self.p = 0.0
         self._signs = []
 
@@ -580,6 +587,7 @@ class ADAugment:
             return imgs
         B = imgs.size(0)
         device = imgs.device
+        color_p = min(self.p, self.color_max_p)
 
         # Horizontal flip
         flip = torch.rand(B, device=device) < self.p
@@ -610,7 +618,7 @@ class ADAugment:
         # of the small training set, which otherwise pushes G toward the
         # dominant colour modes (low a*b* coverage in the diversity reports).
         luma_w = torch.tensor([0.299, 0.587, 0.114], device=device).view(1, 3, 1, 1)
-        sat = (torch.rand(B, device=device) < self.p).view(B, 1, 1, 1)
+        sat = (torch.rand(B, device=device) < color_p).view(B, 1, 1, 1)
         sat_scale = 1.0 + (torch.rand(B, 1, 1, 1, device=device) - 0.5) * 1.0
         luma = (imgs * luma_w).sum(1, keepdim=True)
         imgs = torch.where(sat, luma + sat_scale * (imgs - luma), imgs)
@@ -619,7 +627,7 @@ class ADAugment:
         # (Rodrigues formula), the official ADA colour transform. Applied
         # with probability < 1, so the true colour distribution stays
         # identifiable (ADA non-leakage argument).
-        hue = torch.rand(B, device=device) < self.p
+        hue = torch.rand(B, device=device) < color_p
         if hue.any():
             theta = (torch.rand(B, device=device) * 2.0 - 1.0) * math.pi
             theta = torch.where(hue, theta, torch.zeros_like(theta))
@@ -717,7 +725,8 @@ def train(end_epoch, resume=False, checkpoint_path=None):
     D = Discriminator(cfg.d_width_mult).to(cfg.device)
 
     vgg = VGGPerceptualLoss().to(cfg.device) if cfg.perceptual_weight > 0 else None
-    ada = ADAugment(cfg.ada_target, cfg.ada_step, cfg.ada_max_p, cfg.ada_interval)
+    ada = ADAugment(cfg.ada_target, cfg.ada_step, cfg.ada_max_p, cfg.ada_interval,
+                    color_max_p=cfg.ada_color_max_p)
 
     g_optim = optim.Adam(G.parameters(), lr=cfg.lr_g, betas=(cfg.beta1, cfg.beta2))
     d_optim = optim.Adam(D.parameters(), lr=cfg.lr_d, betas=(cfg.beta1, cfg.beta2))
@@ -1105,6 +1114,10 @@ if __name__ == '__main__':
     parser.add_argument('--ada-target', type=float, default=Config.ada_target)
     parser.add_argument('--ada-max-p', type=float, default=Config.ada_max_p,
                         help='Upper limit for the ADA augmentation probability')
+    parser.add_argument('--ada-color-max-p', type=float, default=Config.ada_color_max_p,
+                        help='Upper limit for the saturation/hue augmentation '
+                             'probability specifically; set 0 to disable colour '
+                             'augmentation while keeping geometric/photometric ADA')
     parser.add_argument('--kid-start', type=int, default=Config.kid_start)
     parser.add_argument('--num-workers', type=int, default=Config.num_workers)
     parser.add_argument('--seed', type=int, default=Config.seed)
@@ -1123,6 +1136,7 @@ if __name__ == '__main__':
     cfg.d_width_mult = args.d_width_mult
     cfg.ada_target = args.ada_target
     cfg.ada_max_p = args.ada_max_p
+    cfg.ada_color_max_p = args.ada_color_max_p
     cfg.kid_start = args.kid_start
     cfg.num_workers = args.num_workers
     cfg.seed = args.seed
