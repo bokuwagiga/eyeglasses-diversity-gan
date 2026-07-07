@@ -995,7 +995,8 @@ def train(end_epoch, resume=False, checkpoint_path=None):
 
 
 def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=32,
-             pure_frac=0.30, truncation_psi_fine=None, truncation_cutoff=3):
+             pure_frac=0.30, truncation_psi_fine=None, truncation_cutoff=3,
+             truncation_centers=1):
     """Generate a dataset from a trained checkpoint (images only).
 
     Generation modes (metadata records the mode of each sample), split as
@@ -1008,7 +1009,8 @@ def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=3
       remainder  interp3  - blend three w vectors (Dirichlet weights), 2/7 share
       remainder  interp4  - blend four w vectors (Dirichlet weights), 1/7 share
 
-    truncation_psi pulls w toward w_mean: lower = quality, higher = diversity.
+    truncation_psi pulls w toward its truncation center: lower = quality,
+    higher = diversity.
 
     Per-layer truncation: stages [0, truncation_cutoff) (coarse, silhouette
     and proportions - the region most prone to going off-manifold at high
@@ -1019,6 +1021,16 @@ def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=3
     standard StyleGAN "truncation on a layer subset" trick: it lets quality
     be pulled in on the coarse stages without sacrificing fine-detail
     diversity. The 6 stages here span 8x16 up to 256x512.
+
+    Multi-modal truncation centers: truncation_centers=1 (default) pulls
+    every sample toward the single global mean w (original behaviour,
+    bit-exact). truncation_centers=k>1 instead k-means-clusters a large
+    w-space sample into k centroids and pulls each generated sample toward
+    its OWN nearest centroid rather than one global "average frame". This
+    should curb precision loss from truncation without collapsing distinct
+    frame styles toward a single mode, since e.g. a wide/angular frame and
+    a small/round frame get pulled toward their own respective center
+    instead of both being dragged toward the dataset-wide average.
     """
     if truncation_psi_fine is None:
         truncation_psi_fine = truncation_psi
@@ -1040,7 +1052,18 @@ def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=3
         for _ in range(200):
             z = torch.randn(50, cfg.latent_dim, device=cfg.device)
             w_samples.append(G.get_w(z))
-    w_mean = torch.cat(w_samples).mean(0, keepdim=True)
+    w_all = torch.cat(w_samples)
+    w_mean = w_all.mean(0, keepdim=True)
+
+    if truncation_centers > 1:
+        from sklearn.cluster import KMeans
+        print(f'Clustering w-space into {truncation_centers} truncation centers ...')
+        km = KMeans(n_clusters=truncation_centers, random_state=cfg.seed, n_init=10)
+        km.fit(w_all.cpu().numpy())
+        centers = torch.tensor(km.cluster_centers_, dtype=w_mean.dtype,
+                               device=cfg.device)  # (truncation_centers, w_dim)
+    else:
+        centers = w_mean  # (1, w_dim); every sample uses this one center
 
     num_stages = G.num_stages
     psi_per_stage = torch.tensor(
@@ -1059,7 +1082,7 @@ def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=3
 
     generated = 0
     with open(GENERATED_DIR / 'metadata.csv', 'w') as meta_file:
-        meta_file.write('id,type,n_z,psi,psi_fine,cutoff\n')
+        meta_file.write('id,type,n_z,psi,psi_fine,cutoff,centers,center_id\n')
         pbar = tqdm(total=num_images, desc='Generating')
         with torch.no_grad():
             while generated < num_images:
@@ -1082,12 +1105,24 @@ def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=3
                         weights = np.random.dirichlet([conc] * n_z)
                         w_blend = sum(float(weights[k]) * w_j[k] for k in range(n_z))
                     w_batch[j] = w_blend
+
+                if truncation_centers > 1:
+                    dists = torch.cdist(w_batch, centers)  # (bs, truncation_centers)
+                    assign = dists.argmin(dim=1)            # (bs,)
+                    center_batch = centers[assign]           # (bs, w_dim)
+                else:
+                    assign = torch.zeros(bs, dtype=torch.long, device=cfg.device)
+                    center_batch = centers.expand(bs, -1)
+
+                for j, (gen_type, n_z) in enumerate(batch_plan):
+                    idx = generated + j
                     rows.append(f'{idx:05d},{gen_type},{n_z},{truncation_psi:.2f},'
-                                f'{truncation_psi_fine:.2f},{truncation_cutoff}\n')
+                                f'{truncation_psi_fine:.2f},{truncation_cutoff},'
+                                f'{truncation_centers},{int(assign[j])}\n')
 
                 w_expanded = w_batch.unsqueeze(1).expand(-1, num_stages, -1)
-                w_expanded = (w_mean.unsqueeze(1) +
-                             psi_per_stage * (w_expanded - w_mean.unsqueeze(1)))
+                center_expanded = center_batch.unsqueeze(1).expand(-1, num_stages, -1)
+                w_expanded = center_expanded + psi_per_stage * (w_expanded - center_expanded)
                 imgs = G.synthesis(w_expanded)
 
                 for j in range(bs):
@@ -1142,6 +1177,12 @@ if __name__ == '__main__':
                              'of --truncation-psi; stages 0..cutoff-1 are coarse '
                              '(silhouette/proportions), cutoff..5 are fine '
                              '(colour/texture/detail); 6 stages total (8x16..256x512)')
+    parser.add_argument('--truncation-centers', type=int, default=1,
+                        help='Number of w-space k-means cluster centers to truncate '
+                             'toward. 1 = original single global-mean truncation '
+                             '(bit-exact). k>1 truncates each sample toward its own '
+                             'nearest cluster center instead of one global mean, to '
+                             'avoid collapsing distinct frame styles together')
     # Sweep hyperparameters
     parser.add_argument('--batch-size', type=int, default=Config.batch_size)
     parser.add_argument('--lr-g', type=float, default=Config.lr_g)
@@ -1211,7 +1252,8 @@ if __name__ == '__main__':
         generate(args.generate_only, num_images=args.num_images,
                  truncation_psi=args.truncation_psi, pure_frac=args.pure_frac,
                  truncation_psi_fine=args.truncation_psi_fine,
-                 truncation_cutoff=args.truncation_cutoff)
+                 truncation_cutoff=args.truncation_cutoff,
+                 truncation_centers=args.truncation_centers)
     else:
         resume = not args.no_resume
         checkpoint_path = args.checkpoint
@@ -1228,4 +1270,5 @@ if __name__ == '__main__':
                 generate(final_ckpt, num_images=args.num_images,
                          truncation_psi=args.truncation_psi, pure_frac=args.pure_frac,
                          truncation_psi_fine=args.truncation_psi_fine,
-                         truncation_cutoff=args.truncation_cutoff)
+                         truncation_cutoff=args.truncation_cutoff,
+                         truncation_centers=args.truncation_centers)
