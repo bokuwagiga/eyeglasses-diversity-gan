@@ -282,7 +282,7 @@ def vendi_score(features, q=1.0):
     return {'vendi': vs, 'vendi_per_sample': vs / n, 'n': n}
 
 
-def precision_recall_density_coverage(real_feats, gen_feats, k=5):
+def precision_recall_density_coverage(real_feats, gen_feats, k=5, return_mask=False):
     """Improved Precision/Recall (Kynkaanniemi 2019) + Density/Coverage (Naeem 2020).
 
     k-NN manifold estimation in feature space:
@@ -290,6 +290,10 @@ def precision_recall_density_coverage(real_feats, gen_feats, k=5):
       recall    - fraction of real samples inside the generated manifold (DIVERSITY)
       density   - how densely generated samples pack the real manifold
       coverage  - fraction of real k-NN balls containing a generated sample (DIVERSITY)
+
+    return_mask=True additionally returns the per-generated-sample boolean
+    inside_real array, usable to reject samples that fall outside the real
+    manifold (precision-based rejection sampling) without retraining.
     """
     from sklearn.neighbors import NearestNeighbors
     from scipy.spatial.distance import cdist
@@ -312,8 +316,11 @@ def precision_recall_density_coverage(real_feats, gen_feats, k=5):
     density = float((dmat <= r_real[None, :]).sum(axis=1).mean() / k)
     coverage = float((dmat_t.min(axis=1) <= r_real).mean())
 
-    return {'precision': precision, 'recall': recall,
-            'density': density, 'coverage': coverage, 'k': k}
+    result = {'precision': precision, 'recall': recall,
+              'density': density, 'coverage': coverage, 'k': k}
+    if return_mask:
+        result['inside_real_mask'] = inside_real
+    return result
 
 
 def nearest_real_distances(real_feats, gen_feats):
