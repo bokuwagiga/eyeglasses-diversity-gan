@@ -995,7 +995,7 @@ def train(end_epoch, resume=False, checkpoint_path=None):
 
 
 def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=32,
-             pure_frac=0.30):
+             pure_frac=0.30, truncation_psi_fine=None, truncation_cutoff=3):
     """Generate a dataset from a trained checkpoint (images only).
 
     Generation modes (metadata records the mode of each sample), split as
@@ -1009,7 +1009,19 @@ def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=3
       remainder  interp4  - blend four w vectors (Dirichlet weights), 1/7 share
 
     truncation_psi pulls w toward w_mean: lower = quality, higher = diversity.
+
+    Per-layer truncation: stages [0, truncation_cutoff) (coarse, silhouette
+    and proportions - the region most prone to going off-manifold at high
+    psi) use truncation_psi; stages [truncation_cutoff, num_stages) (fine,
+    colour/texture/rim detail - where diversity is wanted) use
+    truncation_psi_fine. If truncation_psi_fine is None, it defaults to
+    truncation_psi (original single-psi behaviour, bit-exact). This is the
+    standard StyleGAN "truncation on a layer subset" trick: it lets quality
+    be pulled in on the coarse stages without sacrificing fine-detail
+    diversity. The 6 stages here span 8x16 up to 256x512.
     """
+    if truncation_psi_fine is None:
+        truncation_psi_fine = truncation_psi
     img_dir = GENERATED_DIR / 'images'
     img_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1030,6 +1042,12 @@ def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=3
             w_samples.append(G.get_w(z))
     w_mean = torch.cat(w_samples).mean(0, keepdim=True)
 
+    num_stages = G.num_stages
+    psi_per_stage = torch.tensor(
+        [truncation_psi] * truncation_cutoff +
+        [truncation_psi_fine] * (num_stages - truncation_cutoff),
+        device=cfg.device).view(1, num_stages, 1)
+
     n_pure = int(num_images * pure_frac)
     n_remaining = num_images - n_pure
     n_interp2 = int(n_remaining * 4 / 7)
@@ -1041,7 +1059,7 @@ def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=3
 
     generated = 0
     with open(GENERATED_DIR / 'metadata.csv', 'w') as meta_file:
-        meta_file.write('id,type,n_z,psi\n')
+        meta_file.write('id,type,n_z,psi,psi_fine,cutoff\n')
         pbar = tqdm(total=num_images, desc='Generating')
         with torch.no_grad():
             while generated < num_images:
@@ -1064,10 +1082,13 @@ def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=3
                         weights = np.random.dirichlet([conc] * n_z)
                         w_blend = sum(float(weights[k]) * w_j[k] for k in range(n_z))
                     w_batch[j] = w_blend
-                    rows.append(f'{idx:05d},{gen_type},{n_z},{truncation_psi:.2f}\n')
+                    rows.append(f'{idx:05d},{gen_type},{n_z},{truncation_psi:.2f},'
+                                f'{truncation_psi_fine:.2f},{truncation_cutoff}\n')
 
-                w_batch = w_mean + truncation_psi * (w_batch - w_mean)
-                imgs = G.synthesis(w_batch)
+                w_expanded = w_batch.unsqueeze(1).expand(-1, num_stages, -1)
+                w_expanded = (w_mean.unsqueeze(1) +
+                             psi_per_stage * (w_expanded - w_mean.unsqueeze(1)))
+                imgs = G.synthesis(w_expanded)
 
                 for j in range(bs):
                     save_image(imgs[j].clamp(-1, 1),
@@ -1109,7 +1130,18 @@ if __name__ == '__main__':
                              'interp2/3/4 as before. Set 1.0 for a 100%% '
                              'pure-z variant to isolate blending effects')
     parser.add_argument('--truncation-psi', type=float, default=0.7,
-                        help='Truncation psi (lower=quality, higher=diversity)')
+                        help='Truncation psi (lower=quality, higher=diversity). '
+                             'Applied to the coarse stages (see --truncation-cutoff); '
+                             'applied to ALL stages if --truncation-psi-fine is unset')
+    parser.add_argument('--truncation-psi-fine', type=float, default=None,
+                        help='Separate truncation psi for the fine synthesis stages '
+                             '(colour/texture/rim detail). If unset, defaults to '
+                             '--truncation-psi (original single-psi behaviour)')
+    parser.add_argument('--truncation-cutoff', type=int, default=3,
+                        help='First stage index using --truncation-psi-fine instead '
+                             'of --truncation-psi; stages 0..cutoff-1 are coarse '
+                             '(silhouette/proportions), cutoff..5 are fine '
+                             '(colour/texture/detail); 6 stages total (8x16..256x512)')
     # Sweep hyperparameters
     parser.add_argument('--batch-size', type=int, default=Config.batch_size)
     parser.add_argument('--lr-g', type=float, default=Config.lr_g)
@@ -1177,7 +1209,9 @@ if __name__ == '__main__':
 
     if args.generate_only:
         generate(args.generate_only, num_images=args.num_images,
-                 truncation_psi=args.truncation_psi, pure_frac=args.pure_frac)
+                 truncation_psi=args.truncation_psi, pure_frac=args.pure_frac,
+                 truncation_psi_fine=args.truncation_psi_fine,
+                 truncation_cutoff=args.truncation_cutoff)
     else:
         resume = not args.no_resume
         checkpoint_path = args.checkpoint
@@ -1192,4 +1226,6 @@ if __name__ == '__main__':
             final_ckpt = find_latest_checkpoint(CHECKPOINT_DIR)
             if final_ckpt:
                 generate(final_ckpt, num_images=args.num_images,
-                         truncation_psi=args.truncation_psi, pure_frac=args.pure_frac)
+                         truncation_psi=args.truncation_psi, pure_frac=args.pure_frac,
+                         truncation_psi_fine=args.truncation_psi_fine,
+                         truncation_cutoff=args.truncation_cutoff)
