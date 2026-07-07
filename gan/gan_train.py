@@ -124,14 +124,25 @@ def setup_directories():
 
 
 def save_run_config(args):
-    """Snapshot the effective configuration of this run for reproducibility."""
+    """Snapshot the effective configuration of this run for reproducibility.
+
+    Training runs write run_config.json. Generation-only runs write
+    generation_config.json instead, so re-generating into a training run's
+    output directory can never clobber the original training config
+    snapshot (this happened to results/nocolorada: its training config -
+    r1_gamma 5, batch 16, ada_color_max_p 0 - was overwritten with CLI
+    defaults by a later --generate-only call; the true values survive only
+    in the experiment log).
+    """
     merged = {**vars(Config), **vars(cfg)}  # class defaults + CLI overrides
     payload = {k: (str(v) if isinstance(v, torch.device) else v)
                for k, v in merged.items()
                if not k.startswith('_')
                and isinstance(v, (int, float, str, bool, torch.device))}
     payload['cli_args'] = vars(args)
-    with open(OUTPUT_ROOT / 'run_config.json', 'w') as f:
+    name = 'generation_config.json' if getattr(args, 'generate_only', None) \
+        else 'run_config.json'
+    with open(OUTPUT_ROOT / name, 'w') as f:
         json.dump(payload, f, indent=2)
 
 
