@@ -994,14 +994,19 @@ def train(end_epoch, resume=False, checkpoint_path=None):
 # Generation
 
 
-def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=32):
+def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=32,
+             pure_frac=0.30):
     """Generate a dataset from a trained checkpoint (images only).
 
-    Generation modes (metadata records the mode of each sample):
-      30% pure     - single z sample
-      40% interp2  - blend two w vectors (bimodal Beta weights)
-      20% interp3  - blend three w vectors (Dirichlet weights)
-      10% interp4  - blend four w vectors (Dirichlet weights)
+    Generation modes (metadata records the mode of each sample), split as
+    pure_frac / interp2 / interp3 / interp4 in a fixed 4:2:1 remaining
+    ratio (default pure_frac=0.30 reproduces the original 30/40/20/10
+    split; pure_frac=1.0 gives 100% single-z samples, useful to isolate
+    whether w-blending itself is suppressing diversity vs. the model):
+      pure_frac  pure     - single z sample
+      remainder  interp2  - blend two w vectors (bimodal Beta weights), 4/7 share
+      remainder  interp3  - blend three w vectors (Dirichlet weights), 2/7 share
+      remainder  interp4  - blend four w vectors (Dirichlet weights), 1/7 share
 
     truncation_psi pulls w toward w_mean: lower = quality, higher = diversity.
     """
@@ -1025,9 +1030,10 @@ def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=3
             w_samples.append(G.get_w(z))
     w_mean = torch.cat(w_samples).mean(0, keepdim=True)
 
-    n_pure = int(num_images * 0.30)
-    n_interp2 = int(num_images * 0.40)
-    n_interp3 = int(num_images * 0.20)
+    n_pure = int(num_images * pure_frac)
+    n_remaining = num_images - n_pure
+    n_interp2 = int(n_remaining * 4 / 7)
+    n_interp3 = int(n_remaining * 2 / 7)
     n_interp4 = num_images - n_pure - n_interp2 - n_interp3
     plan = ([('pure', 1)] * n_pure + [('interp2', 2)] * n_interp2 +
             [('interp3', 3)] * n_interp3 + [('interp4', 4)] * n_interp4)
@@ -1097,6 +1103,11 @@ if __name__ == '__main__':
                         help='Skip training; generate from the given checkpoint')
     parser.add_argument('--num-images', type=int, default=10000,
                         help='Number of images to generate')
+    parser.add_argument('--pure-frac', type=float, default=0.30,
+                        help='Fraction of generated images that are single-z '
+                             '(no w-blending); remainder splits 4:2:1 across '
+                             'interp2/3/4 as before. Set 1.0 for a 100%% '
+                             'pure-z variant to isolate blending effects')
     parser.add_argument('--truncation-psi', type=float, default=0.7,
                         help='Truncation psi (lower=quality, higher=diversity)')
     # Sweep hyperparameters
@@ -1166,7 +1177,7 @@ if __name__ == '__main__':
 
     if args.generate_only:
         generate(args.generate_only, num_images=args.num_images,
-                 truncation_psi=args.truncation_psi)
+                 truncation_psi=args.truncation_psi, pure_frac=args.pure_frac)
     else:
         resume = not args.no_resume
         checkpoint_path = args.checkpoint
@@ -1181,4 +1192,4 @@ if __name__ == '__main__':
             final_ckpt = find_latest_checkpoint(CHECKPOINT_DIR)
             if final_ckpt:
                 generate(final_ckpt, num_images=args.num_images,
-                         truncation_psi=args.truncation_psi)
+                         truncation_psi=args.truncation_psi, pure_frac=args.pure_frac)
