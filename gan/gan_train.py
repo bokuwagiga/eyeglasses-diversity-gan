@@ -1276,7 +1276,12 @@ if __name__ == '__main__':
               checkpoint_path=checkpoint_path if resume else None)
 
         if args.generate:
-            final_ckpt = find_latest_checkpoint(CHECKPOINT_DIR)
+            # Prefer the best-KID checkpoint: the latest one may be past a
+            # late-training collapse (this burned the ppl4 run, where ep400
+            # was post-collapse while ep310 held the project-best train KID).
+            best_ckpt = CHECKPOINT_DIR / 'checkpoint_best.pth'
+            final_ckpt = str(best_ckpt) if best_ckpt.exists() \
+                else find_latest_checkpoint(CHECKPOINT_DIR)
             if final_ckpt:
                 generate(final_ckpt, num_images=args.num_images,
                          truncation_psi=args.truncation_psi, pure_frac=args.pure_frac,
