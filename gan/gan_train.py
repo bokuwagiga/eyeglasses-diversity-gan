@@ -32,7 +32,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from PIL import Image
 from torch.nn.utils import spectral_norm
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torchmetrics.image.kid import KernelInceptionDistance
 from torchvision import models, transforms
 from torchvision.utils import save_image
@@ -99,6 +99,10 @@ class Config:
     ada_step = 0.002     # 20260515 used 0.001; slightly faster adaptation
     ada_max_p = 0.85
     ada_color_max_p = 0.85  # separate ceiling for saturation/hue augmentation
+
+    # Optional path to sample_weights.json (metrics/compute_sample_weights.py):
+    # oversamples rare-colour images via WeightedRandomSampler.
+    sample_weights = ''
 
     num_workers = 2
     seed = 42
@@ -728,7 +732,20 @@ def train(end_epoch, resume=False, checkpoint_path=None):
     ])
 
     dataset = EyeglassesDataset(str(DATASET_PATH), img_transform)
-    loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True,
+    sampler = None
+    if cfg.sample_weights:
+        with open(cfg.sample_weights) as f:
+            wmap = json.load(f)['weights']
+        weights = [wmap.get(os.path.basename(p), 1.0) for p in dataset.image_paths]
+        n_boosted = sum(1 for w in weights if w > 1.0)
+        total = sum(weights)
+        print(f'Weighted sampling: {n_boosted}/{len(weights)} boosted images, '
+              f'{100 * sum(w for w in weights if w > 1.0) / total:.1f}% of drawn samples '
+              f'({cfg.sample_weights})')
+        sampler = WeightedRandomSampler(weights, num_samples=len(dataset),
+                                        replacement=True)
+    loader = DataLoader(dataset, batch_size=cfg.batch_size,
+                        shuffle=sampler is None, sampler=sampler,
                         num_workers=cfg.num_workers, drop_last=True,
                         pin_memory=cfg.use_cuda)
 
@@ -1214,6 +1231,9 @@ if __name__ == '__main__':
                              'probability specifically; set 0 to disable colour '
                              'augmentation while keeping geometric/photometric ADA')
     parser.add_argument('--kid-start', type=int, default=Config.kid_start)
+    parser.add_argument('--sample-weights', default=Config.sample_weights,
+                        help='sample_weights.json from metrics/compute_sample_weights.py '
+                             '(oversamples rare-colour images; empty = uniform)')
     parser.add_argument('--num-workers', type=int, default=Config.num_workers)
     parser.add_argument('--seed', type=int, default=Config.seed)
     args = parser.parse_args()
@@ -1232,6 +1252,7 @@ if __name__ == '__main__':
     cfg.ada_target = args.ada_target
     cfg.ada_max_p = args.ada_max_p
     cfg.ada_color_max_p = args.ada_color_max_p
+    cfg.sample_weights = args.sample_weights
     cfg.kid_start = args.kid_start
     cfg.num_workers = args.num_workers
     cfg.seed = args.seed
