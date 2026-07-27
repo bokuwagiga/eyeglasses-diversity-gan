@@ -62,10 +62,16 @@ def main():
     if args.keep > 0 and len(kept) > args.keep:
         kept = kept[:args.keep]
 
+    # Resolve names recursively (generator may nest images in a subdir)
+    name_to_path = {}
+    for ext in ('*.png', '*.jpg', '*.jpeg'):
+        for p in img_dir.rglob(ext):
+            name_to_path.setdefault(p.name, p)
+
     n_copied = 0
     for name in kept:
-        src = img_dir / name
-        if src.exists():
+        src = name_to_path.get(name)
+        if src is not None:
             shutil.copy(src, out_dir / name)
             n_copied += 1
 
