@@ -18,6 +18,14 @@ priors directly on the frame silhouette, calibrated against the real set:
                 small gaps = broken rims (the opening leaks into background)
   rim_contrast  median image-gradient strength along the silhouette boundary
                 (low = washed-out / ghost frames whose rims fade out)
+  contour_wobble mean deviation of the silhouette contours from their
+                low-pass-smoothed version (high = wonky circles / wavy
+                lines instead of smooth manufactured curves)
+  edge_sym      mirror IoU of the rim BOUNDARY band (not the filled shape,
+                which is too forgiving): sensitive to left/right lens shape
+                and rim thickness differences
+  appearance_sym mean CIELAB difference between frame pixels and their
+                mirrored counterparts (colour/shading asymmetry)
 
 Thresholds are the real set's [lo_pct, hi_pct] percentiles per check
 (default 0.5 / 99.5): a generated image is flagged when it falls outside
@@ -50,7 +58,8 @@ import diversity_metrics as dm
 from evaluate_diversity import list_images, load_rgb
 
 CHECKS = ['n_fragments', 'n_holes', 'symmetry_iou', 'lens_mismatch',
-          'speckle_frac', 'sharpness', 'rim_breaks', 'rim_contrast']
+          'speckle_frac', 'sharpness', 'rim_breaks', 'rim_contrast',
+          'contour_wobble', 'edge_sym', 'appearance_sym']
 
 # Direction of badness per check: 'high' = larger is worse, 'low' = smaller
 # is worse, 'both' = outside the real range either way is bad.
@@ -63,6 +72,9 @@ DIRECTION = {
     'sharpness': 'low',
     'rim_breaks': 'high',    # lens holes that only exist after gap-closing
     'rim_contrast': 'low',   # weak boundary gradient = ghost/fading frame
+    'contour_wobble': 'high',  # wavy/wonky rim outlines
+    'edge_sym': 'low',         # boundary-band mirror IoU
+    'appearance_sym': 'high',  # Lab distance to mirrored frame
 }
 
 MIN_BLOB_FRAC = 0.0002  # blobs smaller than this fraction of the image are noise
@@ -138,10 +150,58 @@ def artifact_scores(img_rgb):
     bvals = grad[boundary]
     rim_contrast = float(np.median(bvals)) if bvals.size else 0.0
 
+    # Contour wobble: real rims are smooth manufactured curves. Low-pass each
+    # significant contour (circular moving average over the point sequence)
+    # and measure the mean point-wise deviation of the raw contour from its
+    # smoothed version. Wonky circles / wavy lines deviate by pixels; smooth
+    # rims only by quantization noise. Genuine sharp corners contribute a
+    # small localized baseline that the real-percentile calibration absorbs.
+    from scipy.ndimage import uniform_filter1d
+    contours, _ = cv2.findContours(sil_u8, cv2.RETR_CCOMP,
+                                   cv2.CHAIN_APPROX_NONE)
+    k = 15
+    wobbles, weights = [], []
+    for cnt in contours:
+        if len(cnt) < 4 * k:
+            continue  # too short to distinguish wobble from corners
+        pts = cnt[:, 0, :].astype(np.float64)
+        sx = uniform_filter1d(pts[:, 0], size=k, mode='wrap')
+        sy = uniform_filter1d(pts[:, 1], size=k, mode='wrap')
+        dev = np.sqrt((pts[:, 0] - sx) ** 2 + (pts[:, 1] - sy) ** 2)
+        wobbles.append(float(dev.mean()))
+        weights.append(float(len(cnt)))
+    contour_wobble = (float(np.average(wobbles, weights=weights))
+                      if wobbles else 0.0)
+
+    # Edge symmetry: mirror IoU on the rim boundary band. The filled-shape
+    # IoU (symmetry_iou) is too forgiving - large areas overlap even when
+    # lens shapes / rim thickness differ left vs right. A ~7 px boundary
+    # band makes those differences count.
+    bound_u8 = cv2.morphologyEx(crop, cv2.MORPH_GRADIENT,
+                                np.ones((3, 3), np.uint8))
+    band = cv2.dilate(bound_u8, np.ones((5, 5), np.uint8))
+    band_mir = band[:, ::-1]
+    edge_sym = float(np.logical_and(band, band_mir).sum()
+                     / max(np.logical_or(band, band_mir).sum(), 1))
+
+    # Appearance symmetry: mean CIELAB distance between frame pixels and
+    # their mirrored counterparts, over pixels where both the silhouette
+    # and its mirror are frame. Catches colour/shading asymmetry.
+    lab = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2LAB).astype(np.float32)
+    lab_crop = lab[:, x0:x1 + 1]
+    common = np.logical_and(crop, crop[:, ::-1])
+    if common.sum() > 0:
+        d = lab_crop - lab_crop[:, ::-1]
+        appearance_sym = float(np.sqrt((d * d).sum(axis=2))[common].mean())
+    else:
+        appearance_sym = 255.0
+
     return {'n_fragments': n_fragments, 'n_holes': n_holes,
             'symmetry_iou': symmetry_iou, 'lens_mismatch': lens_mismatch,
             'speckle_frac': speckle_frac, 'sharpness': sharpness,
-            'rim_breaks': rim_breaks, 'rim_contrast': rim_contrast}
+            'rim_breaks': rim_breaks, 'rim_contrast': rim_contrast,
+            'contour_wobble': contour_wobble, 'edge_sym': edge_sym,
+            'appearance_sym': appearance_sym}
 
 
 def score_set(paths, desc):

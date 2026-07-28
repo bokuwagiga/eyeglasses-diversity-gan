@@ -93,6 +93,10 @@ class Config:
     kid_n_fake = 1000
 
     d_width_mult = 1.0   # discriminator channel width multiplier
+    d_edge_channel = False  # feed D a Sobel edge-magnitude channel (4th input
+                            # channel, computed after ADA). Targets structural
+                            # defects the RGB D under-weights: wobbly rim
+                            # contours, ghost frames, broken rims.
 
     ada_target = 0.6     # target fraction of real logits scoring positive
     ada_interval = 4
@@ -453,12 +457,18 @@ class Discriminator(nn.Module):
     provided a strong adversarial signal).
     """
 
-    def __init__(self, d_width_mult=1.0):
+    def __init__(self, d_width_mult=1.0, edge_channel=False):
         super().__init__()
         base = [16, 32, 64, 128, 256, 256]
         ch = [max(8, int(round(c * d_width_mult))) for c in base]
 
-        self.from_rgb = nn.Conv2d(3, ch[0], 1)
+        self.edge_channel = edge_channel
+        if edge_channel:
+            # Fixed Sobel kernels for the on-the-fly edge-magnitude channel.
+            sx = torch.tensor([[-1., 0., 1.], [-2., 0., 2.], [-1., 0., 1.]])
+            self.register_buffer('sobel_x', sx.view(1, 1, 3, 3))
+            self.register_buffer('sobel_y', sx.t().contiguous().view(1, 1, 3, 3))
+        self.from_rgb = nn.Conv2d(4 if edge_channel else 3, ch[0], 1)
         self.act = nn.LeakyReLU(0.2)
         self.blocks = nn.Sequential(*[
             DiscBlock(ch[i], ch[i + 1]) for i in range(len(ch) - 1)
@@ -473,6 +483,15 @@ class Discriminator(nn.Module):
         )
 
     def forward(self, img, return_features=False):
+        if self.edge_channel:
+            # Differentiable edge magnitude on grayscale; computed inside
+            # forward so real/fake/R1 paths all see it, and R1 gradients
+            # flow through it. Scaled to roughly [-1, 1] like the RGB input.
+            gray = img.mean(dim=1, keepdim=True)
+            gx = F.conv2d(gray, self.sobel_x.to(gray.dtype), padding=1)
+            gy = F.conv2d(gray, self.sobel_y.to(gray.dtype), padding=1)
+            edge = torch.sqrt(gx * gx + gy * gy + 1e-8) * 0.25 - 1.0
+            img = torch.cat([img, edge], dim=1)
         x = self.act(self.from_rgb(img))
         features = []
         for i, block in enumerate(self.blocks):
@@ -750,7 +769,7 @@ def train(end_epoch, resume=False, checkpoint_path=None):
                         pin_memory=cfg.use_cuda)
 
     G = Generator(cfg.latent_dim, cfg.w_dim, cfg.mapping_depth).to(cfg.device)
-    D = Discriminator(cfg.d_width_mult).to(cfg.device)
+    D = Discriminator(cfg.d_width_mult, cfg.d_edge_channel).to(cfg.device)
 
     vgg = VGGPerceptualLoss().to(cfg.device) if cfg.perceptual_weight > 0 else None
     ada = ADAugment(cfg.ada_target, cfg.ada_step, cfg.ada_max_p, cfg.ada_interval,
@@ -1223,6 +1242,12 @@ if __name__ == '__main__':
     parser.add_argument('--mapping-depth', type=int, default=Config.mapping_depth)
     parser.add_argument('--d-width-mult', type=float, default=1.0,
                         help='Discriminator channel width multiplier')
+    parser.add_argument('--d-edge-channel', action='store_true',
+                        default=Config.d_edge_channel,
+                        help='Add a Sobel edge-magnitude channel to the D '
+                             'input (targets wobbly rims / ghost frames). '
+                             'Not resume-compatible with 3-channel D '
+                             'checkpoints.')
     parser.add_argument('--ada-target', type=float, default=Config.ada_target)
     parser.add_argument('--ada-max-p', type=float, default=Config.ada_max_p,
                         help='Upper limit for the ADA augmentation probability')
@@ -1249,6 +1274,7 @@ if __name__ == '__main__':
     cfg.style_mixing_prob = args.style_mixing_prob
     cfg.mapping_depth = args.mapping_depth
     cfg.d_width_mult = args.d_width_mult
+    cfg.d_edge_channel = args.d_edge_channel
     cfg.ada_target = args.ada_target
     cfg.ada_max_p = args.ada_max_p
     cfg.ada_color_max_p = args.ada_color_max_p
