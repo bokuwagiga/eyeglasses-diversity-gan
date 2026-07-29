@@ -757,7 +757,7 @@ def autocast():
 # Training loop
 
 
-def train(end_epoch, resume=False, checkpoint_path=None):
+def train(end_epoch, resume=False, checkpoint_path=None, reset_d=False):
     img_transform = transforms.Compose([
         transforms.Resize((cfg.img_height, cfg.img_width)),
         transforms.ToTensor(),
@@ -812,16 +812,26 @@ def train(end_epoch, resume=False, checkpoint_path=None):
         print(f'Loading checkpoint: {checkpoint_path}')
         ckpt = torch.load(str(checkpoint_path), map_location=cfg.device)
         G.load_state_dict(ckpt['G'])
-        D.load_state_dict(ckpt['D'])
         g_optim.load_state_dict(ckpt['g_optim'])
-        d_optim.load_state_dict(ckpt['d_optim'])
         ema.shadow = ckpt.get('ema', ema.shadow)
-        ada.p = ckpt.get('ada_p', 0.0)
         history = ckpt.get('history', history)
-        best_kid = ckpt.get('best_kid', best_kid)
         ppl_mean_ema = ckpt.get('ppl_mean_ema', 0.0)
         start_epoch = ckpt['epoch'] + 1
-        print(f'Resuming from epoch {start_epoch}')
+        if reset_d:
+            # Load G only; keep the fresh D/d_optim/ADA state and reset
+            # best_kid so the new phase tracks its own best checkpoint.
+            # Used to introduce an architecturally different D (e.g. the
+            # edge channel) against an already-trained G: from scratch the
+            # edge channel makes real/fake trivially separable and D
+            # saturates before G can learn anything.
+            print(f'Resuming G from epoch {start_epoch} with a FRESH '
+                  f'discriminator (--reset-d)')
+        else:
+            D.load_state_dict(ckpt['D'])
+            d_optim.load_state_dict(ckpt['d_optim'])
+            ada.p = ckpt.get('ada_p', 0.0)
+            best_kid = ckpt.get('best_kid', best_kid)
+            print(f'Resuming from epoch {start_epoch}')
 
     g_params = sum(p.numel() for p in G.parameters() if p.requires_grad)
     d_params = sum(p.numel() for p in D.parameters() if p.requires_grad)
@@ -839,7 +849,9 @@ def train(end_epoch, resume=False, checkpoint_path=None):
     for epoch in range(start_epoch, end_epoch):
         t_epoch = time.time()
         if cfg.d_edge_channel and cfg.d_edge_warmup > 0:
-            D.edge_scale = min(1.0, (epoch + 1) / cfg.d_edge_warmup)
+            # Warmup is relative to this phase's first epoch (matters when
+            # resuming with --reset-d at a high epoch number).
+            D.edge_scale = min(1.0, (epoch - start_epoch + 1) / cfg.d_edge_warmup)
         G.train()
         D.train()
         sums = {'g': 0.0, 'd': 0.0, 'perc': 0.0, 'fm': 0.0,
@@ -1264,6 +1276,11 @@ if __name__ == '__main__':
                              'input (targets wobbly rims / ghost frames). '
                              'Not resume-compatible with 3-channel D '
                              'checkpoints.')
+    parser.add_argument('--reset-d', action='store_true',
+                        help='On resume, load only G/EMA from the checkpoint '
+                             'and start a fresh discriminator (for introducing '
+                             'an architecturally different D, e.g. '
+                             '--d-edge-channel, against a trained G)')
     parser.add_argument('--d-edge-warmup', type=int,
                         default=Config.d_edge_warmup,
                         help='Epochs to linearly fade the edge channel in '
@@ -1342,7 +1359,8 @@ if __name__ == '__main__':
         print(f'Checkpoint: {checkpoint_path}' if checkpoint_path else 'Starting from scratch.')
 
         train(end_epoch=args.end_epoch, resume=resume,
-              checkpoint_path=checkpoint_path if resume else None)
+              checkpoint_path=checkpoint_path if resume else None,
+              reset_d=args.reset_d)
 
         if args.generate:
             # Prefer the best-KID checkpoint: the latest one may be past a
