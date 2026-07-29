@@ -497,9 +497,14 @@ class Discriminator(nn.Module):
             gx = F.conv2d(gray, self.sobel_x.to(gray.dtype), padding=1)
             gy = F.conv2d(gray, self.sobel_y.to(gray.dtype), padding=1)
             edge = (torch.sqrt(gx * gx + gy * gy + 1e-8) * 0.25 - 1.0)
-            # Fade-in: scale toward the channel's mean-free baseline so that
-            # at edge_scale 0 the channel carries no real/fake information.
-            edge = edge * self.edge_scale
+            # Fade-in by noise blending. Plain down-scaling does NOT hide
+            # the channel: D just learns a 1/scale weight and recovers the
+            # full real/fake tell (observed: D saturated in ep1 at scale
+            # 1/150). Blending with unit noise fixes the SNR at s/(1-s),
+            # which no learned amplification can undo.
+            s = self.edge_scale
+            if self.training and s < 1.0:
+                edge = edge * s + torch.randn_like(edge) * (1.0 - s)
             img = torch.cat([img, edge], dim=1)
         x = self.act(self.from_rgb(img))
         features = []
