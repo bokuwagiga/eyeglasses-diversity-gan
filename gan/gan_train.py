@@ -97,6 +97,11 @@ class Config:
                             # channel, computed after ADA). Targets structural
                             # defects the RGB D under-weights: wobbly rim
                             # contours, ghost frames, broken rims.
+    d_edge_warmup = 150     # epochs to linearly fade the edge channel in.
+                            # At full strength from epoch 0 the edge channel
+                            # makes an untrained G trivially separable (D
+                            # saturates within one epoch); fading it in lets
+                            # G learn coarse structure first.
 
     ada_target = 0.6     # target fraction of real logits scoring positive
     ada_interval = 4
@@ -463,6 +468,7 @@ class Discriminator(nn.Module):
         ch = [max(8, int(round(c * d_width_mult))) for c in base]
 
         self.edge_channel = edge_channel
+        self.edge_scale = 1.0  # fade-in factor, set per-epoch by the trainer
         if edge_channel:
             # Fixed Sobel kernels for the on-the-fly edge-magnitude channel.
             sx = torch.tensor([[-1., 0., 1.], [-2., 0., 2.], [-1., 0., 1.]])
@@ -490,7 +496,10 @@ class Discriminator(nn.Module):
             gray = img.mean(dim=1, keepdim=True)
             gx = F.conv2d(gray, self.sobel_x.to(gray.dtype), padding=1)
             gy = F.conv2d(gray, self.sobel_y.to(gray.dtype), padding=1)
-            edge = torch.sqrt(gx * gx + gy * gy + 1e-8) * 0.25 - 1.0
+            edge = (torch.sqrt(gx * gx + gy * gy + 1e-8) * 0.25 - 1.0)
+            # Fade-in: scale toward the channel's mean-free baseline so that
+            # at edge_scale 0 the channel carries no real/fake information.
+            edge = edge * self.edge_scale
             img = torch.cat([img, edge], dim=1)
         x = self.act(self.from_rgb(img))
         features = []
@@ -824,6 +833,8 @@ def train(end_epoch, resume=False, checkpoint_path=None):
 
     for epoch in range(start_epoch, end_epoch):
         t_epoch = time.time()
+        if cfg.d_edge_channel and cfg.d_edge_warmup > 0:
+            D.edge_scale = min(1.0, (epoch + 1) / cfg.d_edge_warmup)
         G.train()
         D.train()
         sums = {'g': 0.0, 'd': 0.0, 'perc': 0.0, 'fm': 0.0,
@@ -1248,6 +1259,11 @@ if __name__ == '__main__':
                              'input (targets wobbly rims / ghost frames). '
                              'Not resume-compatible with 3-channel D '
                              'checkpoints.')
+    parser.add_argument('--d-edge-warmup', type=int,
+                        default=Config.d_edge_warmup,
+                        help='Epochs to linearly fade the edge channel in '
+                             '(0 = full strength immediately; saturates D '
+                             'against an untrained G)')
     parser.add_argument('--ada-target', type=float, default=Config.ada_target)
     parser.add_argument('--ada-max-p', type=float, default=Config.ada_max_p,
                         help='Upper limit for the ADA augmentation probability')
@@ -1275,6 +1291,7 @@ if __name__ == '__main__':
     cfg.mapping_depth = args.mapping_depth
     cfg.d_width_mult = args.d_width_mult
     cfg.d_edge_channel = args.d_edge_channel
+    cfg.d_edge_warmup = args.d_edge_warmup
     cfg.ada_target = args.ada_target
     cfg.ada_max_p = args.ada_max_p
     cfg.ada_color_max_p = args.ada_color_max_p
