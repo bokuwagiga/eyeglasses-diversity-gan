@@ -93,6 +93,7 @@ class Config:
     kid_n_fake = 1000
 
     d_width_mult = 1.0   # discriminator channel width multiplier
+    g_width_mult = 1.0   # generator channel width multiplier (capped at 512)
     d_edge_channel = False  # feed D a Sobel edge-magnitude channel (4th input
                             # channel, computed after ADA). Targets structural
                             # defects the RGB D under-weights: wobbly rim
@@ -359,16 +360,20 @@ class Generator(nn.Module):
 
     CHANNELS = [512, 256, 256, 128, 64, 32, 16]
 
-    def __init__(self, z_dim=512, w_dim=512, mapping_depth=8):
+    def __init__(self, z_dim=512, w_dim=512, mapping_depth=8, g_width_mult=1.0):
         super().__init__()
         self.w_dim = w_dim
         self.num_stages = len(self.CHANNELS) - 1
         self.mapping = MappingNetwork(z_dim, w_dim, depth=mapping_depth)
-        self.const = nn.Parameter(torch.randn(1, 512, 4, 8))
+        # Width multiplier, capped at 512: at mult 2 the high-res stages
+        # double (..., 128, 64, 32) while the already-wide low-res stages
+        # stay at 512. The stock widths starve the contour-drawing stages
+        # (16 ch at 256x512 - wobbly curves, dissolving thin rims).
+        ch = [min(512, max(16, int(round(c * g_width_mult))))
+              for c in self.CHANNELS]
+        self.const = nn.Parameter(torch.randn(1, ch[0], 4, 8))
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear',
                                     align_corners=False)
-
-        ch = self.CHANNELS
         self.blocks = nn.ModuleList()
         self.to_rgb = nn.ModuleList()
         self.attn_idx = 2
@@ -782,7 +787,8 @@ def train(end_epoch, resume=False, checkpoint_path=None, reset_d=False):
                         num_workers=cfg.num_workers, drop_last=True,
                         pin_memory=cfg.use_cuda)
 
-    G = Generator(cfg.latent_dim, cfg.w_dim, cfg.mapping_depth).to(cfg.device)
+    G = Generator(cfg.latent_dim, cfg.w_dim, cfg.mapping_depth,
+                  cfg.g_width_mult).to(cfg.device)
     D = Discriminator(cfg.d_width_mult, cfg.d_edge_channel).to(cfg.device)
 
     vgg = VGGPerceptualLoss().to(cfg.device) if cfg.perceptual_weight > 0 else None
@@ -1113,7 +1119,8 @@ def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=3
     img_dir.mkdir(parents=True, exist_ok=True)
 
     ckpt = torch.load(str(checkpoint_path), map_location=cfg.device)
-    G = Generator(cfg.latent_dim, cfg.w_dim, cfg.mapping_depth).to(cfg.device)
+    G = Generator(cfg.latent_dim, cfg.w_dim, cfg.mapping_depth,
+                  cfg.g_width_mult).to(cfg.device)
     G.load_state_dict(ckpt['G'])
     if 'ema' in ckpt:
         for name, param in G.named_parameters():
@@ -1276,6 +1283,11 @@ if __name__ == '__main__':
                              'input (targets wobbly rims / ghost frames). '
                              'Not resume-compatible with 3-channel D '
                              'checkpoints.')
+    parser.add_argument('--g-width-mult', type=float,
+                        default=Config.g_width_mult,
+                        help='Generator channel width multiplier (capped at '
+                             '512); stock widths starve the high-res stages '
+                             '(16 ch at 256x512)')
     parser.add_argument('--reset-d', action='store_true',
                         help='On resume, load only G/EMA from the checkpoint '
                              'and start a fresh discriminator (for introducing '
@@ -1312,6 +1324,7 @@ if __name__ == '__main__':
     cfg.style_mixing_prob = args.style_mixing_prob
     cfg.mapping_depth = args.mapping_depth
     cfg.d_width_mult = args.d_width_mult
+    cfg.g_width_mult = args.g_width_mult
     cfg.d_edge_channel = args.d_edge_channel
     cfg.d_edge_warmup = args.d_edge_warmup
     cfg.ada_target = args.ada_target
