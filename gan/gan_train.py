@@ -1283,6 +1283,11 @@ if __name__ == '__main__':
                              'input (targets wobbly rims / ghost frames). '
                              'Not resume-compatible with 3-channel D '
                              'checkpoints.')
+    parser.add_argument('--ppl-batch-size', type=int,
+                        default=Config.ppl_batch_size,
+                        help='Batch for the PPL regularizer (create_graph '
+                             'double-backprop is the VRAM hog; lower this '
+                             'before lowering --batch-size on OOM)')
     parser.add_argument('--g-width-mult', type=float,
                         default=Config.g_width_mult,
                         help='Generator channel width multiplier (capped at '
@@ -1325,6 +1330,7 @@ if __name__ == '__main__':
     cfg.mapping_depth = args.mapping_depth
     cfg.d_width_mult = args.d_width_mult
     cfg.g_width_mult = args.g_width_mult
+    cfg.ppl_batch_size = args.ppl_batch_size
     cfg.d_edge_channel = args.d_edge_channel
     cfg.d_edge_warmup = args.d_edge_warmup
     cfg.ada_target = args.ada_target
