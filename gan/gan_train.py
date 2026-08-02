@@ -252,17 +252,19 @@ class Blur(nn.Module):
     (skip-RGB branches summed with sub-pixel phase mismatch).
     """
 
-    def __init__(self):
-        super().__init__()
-        k = torch.tensor([1.0, 2.0, 1.0])
-        k = torch.outer(k, k)
-        self.register_buffer('kernel', (k / k.sum()).view(1, 1, 3, 3),
-                             persistent=False)
-
     def forward(self, x):
-        c = x.size(1)
-        return F.conv2d(x, self.kernel.expand(c, 1, 3, 3).to(x.dtype),
-                        padding=1, groups=c)
+        # Separable shift-and-add implementation. Mathematically identical to
+        # the depthwise conv2d form (the [1,2,1]x[1,2,1]/16 kernel is
+        # separable and conv2d zero-pads, as F.pad does here), but avoids
+        # groups=C depthwise convolution with a runtime-expanded
+        # (non-contiguous) kernel, which falls off cuDNN's fast paths in
+        # forward AND backward (~20 blur calls per training step made
+        # epochs ~3x slower). Shifted adds are memory-bound elementwise ops
+        # with an equally cheap autograd path.
+        x = F.pad(x, (1, 1, 1, 1))
+        x = (x[..., :-2] + 2.0 * x[..., 1:-1] + x[..., 2:]) * 0.25
+        x = (x[..., :-2, :] + 2.0 * x[..., 1:-1, :] + x[..., 2:, :]) * 0.25
+        return x
 
 
 class EqualConv2d(nn.Module):
