@@ -917,6 +917,14 @@ def train(end_epoch, resume=False, checkpoint_path=None, reset_d=False):
             ada.p = ckpt.get('ada_p', 0.0)
             best_kid = ckpt.get('best_kid', best_kid)
             print(f'Resuming from epoch {start_epoch}')
+        # load_state_dict restores the checkpoint's param_groups, silently
+        # reverting any --lr-g/--lr-d given on the command line. Re-apply the
+        # configured rates so lr changes on resume take effect (Adam moment
+        # state is kept).
+        for pg in g_optim.param_groups:
+            pg['lr'] = cfg.lr_g
+        for pg in d_optim.param_groups:
+            pg['lr'] = cfg.lr_d
 
     g_params = sum(p.numel() for p in G.parameters() if p.requires_grad)
     d_params = sum(p.numel() for p in D.parameters() if p.requires_grad)
