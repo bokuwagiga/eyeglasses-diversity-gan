@@ -244,12 +244,12 @@ class ScaledLeakyReLU(nn.Module):
 class Blur(nn.Module):
     """Fixed binomial low-pass filter ([1,2,1] x [1,2,1]), depthwise.
 
-    StyleGAN2's FIR resampling, odd-tap variant so features stay
-    pixel-aligned with stock PyTorch ops. Applied after every upsample in G
-    (features AND the skip-RGB accumulation) and before every downsample in
-    D. Without it, bilinear upsampling / bare avg-pooling alias high
-    frequencies - the producer of wobbly contours and double-edge ghosts
-    (skip-RGB branches summed with sub-pixel phase mismatch).
+    Used in D only, before each avg-pool ("blurpool", Zhang 2019): bare
+    strided pooling aliases high frequencies, letting D reward jagged
+    contours. NOT used in G: bilinear upsampling is already a low-pass, and
+    stacking an extra blur on top (tried in the sg2f run) suppresses the
+    high frequencies G needs for dark sharp rims - G mode-collapsed to
+    pale wire-thin frames (ab_coverage 0.08, recall 0.0).
     """
 
     def forward(self, x):
@@ -265,27 +265,6 @@ class Blur(nn.Module):
         x = (x[..., :-2] + 2.0 * x[..., 1:-1] + x[..., 2:]) * 0.25
         x = (x[..., :-2, :] + 2.0 * x[..., 1:-1, :] + x[..., 2:, :]) * 0.25
         return x
-
-
-class EqualConv2d(nn.Module):
-    """Conv2d with equalized learning rate (StyleGAN).
-
-    Weights stored as N(0, 1) and scaled by 1/sqrt(fan_in) at runtime, so
-    every layer trains at the same effective rate regardless of width
-    (official StyleGAN2 uses this in ALL convs, not just the mapping MLP).
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size, padding=0):
-        super().__init__()
-        self.weight = nn.Parameter(
-            torch.randn(out_channels, in_channels, kernel_size, kernel_size))
-        self.bias = nn.Parameter(torch.zeros(out_channels))
-        self.scale = 1.0 / math.sqrt(in_channels * kernel_size * kernel_size)
-        self.padding = padding
-
-    def forward(self, x):
-        return F.conv2d(x, self.weight * self.scale, self.bias,
-                        padding=self.padding)
 
 
 class MappingNetwork(nn.Module):
@@ -319,7 +298,7 @@ class StyleMod(nn.Module):
 
     def __init__(self, in_channels, w_dim):
         super().__init__()
-        self.fc = EqualLinear(w_dim, in_channels * 2)
+        self.fc = nn.Linear(w_dim, in_channels * 2)
         self.fc.bias.data[:in_channels] = 1.0
         self.fc.bias.data[in_channels:] = 0.0
 
@@ -338,17 +317,14 @@ class ModulatedConv2d(nn.Module):
         self.pad = kernel_size // 2
         self.weight = nn.Parameter(
             torch.randn(1, out_channels, in_channels, kernel_size, kernel_size))
-        # Equalized lr: weights stay N(0,1), scaled at runtime (official
-        # StyleGAN2). With demodulate=True the forward pass is invariant to
-        # this scale, but the gradient dynamics match the official ones; for
-        # to_rgb (demodulate=False) the scale matters directly.
-        self.w_scale = 1.0 / math.sqrt(in_channels * kernel_size * kernel_size)
+        nn.init.kaiming_normal_(self.weight[0], a=0.2, mode='fan_in',
+                                nonlinearity='leaky_relu')
         self.style = StyleMod(in_channels, w_dim)
 
     def forward(self, x, w):
         B = x.size(0)
         scale, _ = self.style(w)
-        weight = self.weight * self.w_scale * scale.unsqueeze(1)
+        weight = self.weight * scale.unsqueeze(1)
         if self.demodulate:
             sigma = torch.sqrt((weight ** 2).sum([2, 3, 4], keepdim=True) + self.eps)
             weight = weight / sigma
@@ -426,7 +402,6 @@ class Generator(nn.Module):
         self.const = nn.Parameter(torch.randn(1, ch[0], 4, 8))
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear',
                                     align_corners=False)
-        self.blur = Blur()
         self.blocks = nn.ModuleList()
         self.to_rgb = nn.ModuleList()
         self.attn_idx = 2
@@ -454,14 +429,13 @@ class Generator(nn.Module):
 
         for i, (block, rgb_layer) in enumerate(zip(self.blocks, self.to_rgb)):
             w_i = w[:, i]
-            x = self.blur(self.upsample(x))
+            x = self.upsample(x)
             x = block[0](x, w_i)
             x = block[1](x, w_i)
             if i == self.attn_idx:
                 x = self.attention(x)
             rgb_out = rgb_layer(x, w_i)
-            rgb = (rgb_out if rgb is None
-                   else self.blur(self.upsample(rgb)) + rgb_out)
+            rgb = rgb_out if rgb is None else self.upsample(rgb) + rgb_out
 
         # Linear RGB output (official StyleGAN2). A tanh here saturates within
         # a few optimizer steps on this data: the near-white catalogue
@@ -519,11 +493,11 @@ class DiscBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.conv1 = EqualConv2d(in_channels, in_channels, 3, padding=1)
-        self.conv2 = EqualConv2d(in_channels, out_channels, 3, padding=1)
+        self.conv1 = nn.Conv2d(in_channels, in_channels, 3, padding=1)
+        self.conv2 = nn.Conv2d(in_channels, out_channels, 3, padding=1)
         self.blur = Blur()
         self.down = nn.AvgPool2d(2)
-        self.skip = EqualConv2d(in_channels, out_channels, 1)
+        self.skip = nn.Conv2d(in_channels, out_channels, 1)
         self.act = nn.LeakyReLU(0.2)
 
     def forward(self, x):
@@ -553,18 +527,18 @@ class Discriminator(nn.Module):
             sx = torch.tensor([[-1., 0., 1.], [-2., 0., 2.], [-1., 0., 1.]])
             self.register_buffer('sobel_x', sx.view(1, 1, 3, 3))
             self.register_buffer('sobel_y', sx.t().contiguous().view(1, 1, 3, 3))
-        self.from_rgb = EqualConv2d(4 if edge_channel else 3, ch[0], 1)
+        self.from_rgb = nn.Conv2d(4 if edge_channel else 3, ch[0], 1)
         self.act = nn.LeakyReLU(0.2)
         self.blocks = nn.Sequential(*[
             DiscBlock(ch[i], ch[i + 1]) for i in range(len(ch) - 1)
         ])
         self.attn = SelfAttention(ch[3])
         self.mbstd = MinibatchSTD()
-        self.final = EqualConv2d(ch[-1] + 1, ch[-1], 3, padding=1)
+        self.final = nn.Conv2d(ch[-1] + 1, ch[-1], 3, padding=1)
         self.head = nn.Sequential(
             nn.AdaptiveAvgPool2d(4),
             nn.Flatten(),
-            EqualLinear(ch[-1] * 16, 1),
+            nn.Linear(ch[-1] * 16, 1),
         )
 
     def forward(self, img, return_features=False):
@@ -1016,18 +990,15 @@ def train(end_epoch, resume=False, checkpoint_path=None, reset_d=False):
             if vgg is not None:
                 perc_loss = vgg(fake_imgs, real_imgs)
 
-            # Feature matching with NEAREST-real pairing (same rationale as
-            # VGGPerceptualLoss): pairing fake i with real i (an arbitrary
-            # real) pulls every fake toward the dataset mean in expectation -
-            # a mode-averaging force that suppresses rare colour/shape modes.
-            # Match on D's deepest features instead.
-            with torch.no_grad():
-                fv = fake_feats[-1].float().mean([2, 3])
-                rv = real_feats[-1].float().mean([2, 3])
-                fm_match = torch.cdist(fv, rv).argmin(dim=1)
+            # Feature matching with RANDOM (batch-index) pairing. Nearest-real
+            # pairing was tried in the sg2f run and removed the loss's
+            # mode-COVERING force: with both FM and the perceptual loss
+            # nearest-matched, a collapsed G pays almost no penalty (its one
+            # mode is always near SOME real) - G collapsed to a single pale
+            # frame (recall 0.0). Random pairing keeps a statistical pull
+            # toward the full real distribution.
             fm_loss = torch.stack([
-                F.l1_loss(f.float().mean([2, 3]),
-                          r.detach().float().mean([2, 3])[fm_match])
+                F.l1_loss(f.float().mean([2, 3]), r.detach().float().mean([2, 3]))
                 for f, r in zip(fake_feats, real_feats)
             ]).mean()
 
