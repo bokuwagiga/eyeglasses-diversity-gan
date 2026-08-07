@@ -812,7 +812,16 @@ def autocast():
 
 def train(end_epoch, resume=False, checkpoint_path=None, reset_d=False):
     img_transform = transforms.Compose([
-        transforms.Resize((cfg.img_height, cfg.img_width)),
+        # BICUBIC, not the default BILINEAR. Sources are ~1461px square and
+        # this is a ~2.85x reduction, where the triangle filter erases
+        # interior detail (hinges, logos, acetate texture). Measured on 800
+        # reals, bbox Laplacian variance: bilinear p50 780 vs bicubic p50
+        # 1125. The metric pipeline (metrics/evaluate_diversity.load_rgb) has
+        # always used BICUBIC, so every run up to rebalance4 trained on
+        # targets ~30% softer than the reals it was scored against - and
+        # reproduced them faithfully (rebalance4 p50 753 vs targets' 780).
+        transforms.Resize((cfg.img_height, cfg.img_width),
+                          interpolation=transforms.InterpolationMode.BICUBIC),
         # Dataset-level x-flips (SG2-ADA prescription for small datasets):
         # unlike ADA's non-leaky flip, this EXPANDS what G must model
         # (6.5k -> effectively 13k images). Mirror-valid for frontal
