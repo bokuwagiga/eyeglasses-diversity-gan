@@ -94,6 +94,11 @@ class Config:
 
     d_width_mult = 1.0   # discriminator channel width multiplier
     g_width_mult = 1.0   # generator channel width multiplier (capped at 512)
+    # Mirror coupling in G at the 32x64 and 64x128 stages: each position is
+    # given its horizontally flipped counterpart so the two halves can be
+    # compared. Targets the residual temple asymmetry (sharp1 ep1200:
+    # frame front -3.6% vs real mirror-IoU, temples -12.9%).
+    g_mirror_coupling = False
     xflip = True         # dataset-level horizontal flips (doubles effective
                          # data; SG2-ADA small-dataset prescription)
     d_edge_channel = False  # feed D a Sobel edge-magnitude channel (4th input
@@ -373,6 +378,39 @@ class SelfAttention(nn.Module):
         return x + self.gamma * out
 
 
+class MirrorCoupling(nn.Module):
+    """Let every position see its horizontal mirror counterpart.
+
+    Eyeglass frames are mirror-symmetric in SHAPE, but a 3x3 conv at
+    64x128 has no path between the left and right temples, which sit at
+    opposite extremes of the image. Measured on sharp1 at ep1200: the
+    frame front converges to within 3.6% of real mirror-IoU while the
+    temples stay 12.9% off and barely improve with more training.
+
+    Self-attention at 32x64 is already present and does not fix this - it
+    has to discover the mirror correspondence among all H*W pairs. This
+    module hands it over directly: concatenate the width-flipped feature
+    map, so channel c at (y, x) is aligned with channel c at (y, W-1-x),
+    and let a 1x1 conv compare them.
+
+    Residual with a zero-initialised gain, so the module is exactly the
+    identity at init and the run starts from the sharp1 dynamics. It is a
+    soft coupling, not a constraint: the network can still emit asymmetric
+    output where the data demands it (branded temple, directional
+    lighting, and patterned acetate, which sharp1 correctly does NOT
+    mirror - over-mirroring measured at 0.59% against an expected 10%).
+    """
+
+    def __init__(self, channels):
+        super().__init__()
+        self.proj = nn.Conv2d(2 * channels, channels, 1)
+        self.gamma = nn.Parameter(torch.zeros(1))
+
+    def forward(self, x):
+        pair = torch.cat([x, torch.flip(x, dims=[3])], dim=1)
+        return x + self.gamma * self.proj(pair)
+
+
 # Generator
 
 
@@ -388,7 +426,8 @@ class Generator(nn.Module):
 
     CHANNELS = [512, 256, 256, 128, 64, 32, 16]
 
-    def __init__(self, z_dim=512, w_dim=512, mapping_depth=8, g_width_mult=1.0):
+    def __init__(self, z_dim=512, w_dim=512, mapping_depth=8, g_width_mult=1.0,
+                 mirror_coupling=False):
         super().__init__()
         self.w_dim = w_dim
         self.num_stages = len(self.CHANNELS) - 1
@@ -406,6 +445,13 @@ class Generator(nn.Module):
         self.to_rgb = nn.ModuleList()
         self.attn_idx = 2
         self.attention = SelfAttention(ch[self.attn_idx + 1])
+
+        # Mirror coupling at the 32x64 and 64x128 stages. Both, because the
+        # temples run out to the image extremes: 32x64 sets their overall
+        # placement and 64x128 their boundary shape.
+        self.mirror_idx = (2, 3) if mirror_coupling else ()
+        self.mirror = nn.ModuleDict(
+            {str(i): MirrorCoupling(ch[i + 1]) for i in self.mirror_idx})
 
         for i in range(self.num_stages):
             self.blocks.append(nn.ModuleList([
@@ -434,6 +480,8 @@ class Generator(nn.Module):
             x = block[1](x, w_i)
             if i == self.attn_idx:
                 x = self.attention(x)
+            if str(i) in self.mirror:
+                x = self.mirror[str(i)](x)
             rgb_out = rgb_layer(x, w_i)
             rgb = rgb_out if rgb is None else self.upsample(rgb) + rgb_out
 
@@ -850,7 +898,8 @@ def train(end_epoch, resume=False, checkpoint_path=None, reset_d=False):
                         pin_memory=cfg.use_cuda)
 
     G = Generator(cfg.latent_dim, cfg.w_dim, cfg.mapping_depth,
-                  cfg.g_width_mult).to(cfg.device)
+                  cfg.g_width_mult,
+                  cfg.g_mirror_coupling).to(cfg.device)
     D = Discriminator(cfg.d_width_mult, cfg.d_edge_channel).to(cfg.device)
 
     vgg = VGGPerceptualLoss().to(cfg.device) if cfg.perceptual_weight > 0 else None
@@ -1197,7 +1246,8 @@ def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=3
 
     ckpt = torch.load(str(checkpoint_path), map_location=cfg.device)
     G = Generator(cfg.latent_dim, cfg.w_dim, cfg.mapping_depth,
-                  cfg.g_width_mult).to(cfg.device)
+                  cfg.g_width_mult,
+                  cfg.g_mirror_coupling).to(cfg.device)
     G.load_state_dict(ckpt['G'])
     if 'ema' in ckpt:
         for name, param in G.named_parameters():
@@ -1370,6 +1420,14 @@ if __name__ == '__main__':
                         help='Generator channel width multiplier (capped at '
                              '512); stock widths starve the high-res stages '
                              '(16 ch at 256x512)')
+    parser.add_argument('--g-mirror-coupling', action='store_true',
+                        help='Mirror coupling in G at the 32x64 and 64x128 '
+                             'stages: concatenate the width-flipped feature '
+                             'map so each position sees its mirror '
+                             'counterpart. Targets residual temple asymmetry. '
+                             'Changes the G architecture - NOT resume- or '
+                             'generate-compatible with checkpoints trained '
+                             'without it')
     parser.add_argument('--reset-d', action='store_true',
                         help='On resume, load only G/EMA from the checkpoint '
                              'and start a fresh discriminator (for introducing '
@@ -1410,6 +1468,7 @@ if __name__ == '__main__':
     cfg.mapping_depth = args.mapping_depth
     cfg.d_width_mult = args.d_width_mult
     cfg.g_width_mult = args.g_width_mult
+    cfg.g_mirror_coupling = args.g_mirror_coupling
     cfg.ppl_batch_size = args.ppl_batch_size
     cfg.d_edge_channel = args.d_edge_channel
     cfg.d_edge_warmup = args.d_edge_warmup
