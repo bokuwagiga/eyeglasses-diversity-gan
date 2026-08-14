@@ -134,6 +134,114 @@ def geometric_descriptors(silhouette):
     }
 
 
+def mirror_axis_symmetry(silhouette, max_shift=8, max_deg=3.0, deg_step=1.0):
+    """Boundary-band mirror IoU at the bbox axis and at the best-fit axis.
+
+    The plain mirror IoU (diagnose_artifacts.edge_sym) reflects about the
+    bbox vertical centre line, which is the frame's true symmetry axis only
+    when the shot is fronto-parallel and centred. It is not: on synthetic
+    silhouettes a 2 degree tilt costs 0.51 of IoU on a PERFECTLY symmetric
+    frame, while genuine temple asymmetry costs only 0.07 - roughly 7x more
+    sensitive to pose than to the defect it is named for. Measured on the
+    real set, 40% of catalogue photos need a >=3 px axis shift.
+
+    Searching the axis over horizontal shift and small rotation and keeping
+    the best IoU removes pose, leaving shape. The offset itself is a useful
+    quantity in its own right: its dispersion across a set measures POSE
+    diversity, which mirror coupling in G was found to collapse (real shift
+    std 2.97, mirror1 1.25) without any other metric noticing.
+
+    Returns (fixed, aligned, shift_px, rot_deg) or None.
+    """
+    sil = silhouette.astype(np.uint8)
+    ys, xs = np.nonzero(sil)
+    if xs.size == 0:
+        return None
+    x0, x1 = xs.min(), xs.max()
+    y0, y1 = ys.min(), ys.max()
+    if x1 - x0 < 8:
+        return None
+
+    pad = max_shift + 8
+    sub = sil[max(0, y0 - pad):y1 + pad + 1, max(0, x0 - pad):x1 + pad + 1]
+    if sub.size == 0:
+        return None
+    h, w = sub.shape
+    cx, cy = (w - 1) / 2.0, (h - 1) / 2.0
+    k3 = np.ones((3, 3), np.uint8)
+    k5 = np.ones((5, 5), np.uint8)
+
+    def shift_h(a, s):
+        if s == 0:
+            return a
+        out = np.zeros_like(a)
+        if s > 0:
+            out[:, s:] = a[:, :-s]
+        else:
+            out[:, :s] = a[:, -s:]
+        return out
+
+    best = (-1.0, 0, 0.0)
+    fixed = None
+    degs = [0.0] if max_deg <= 0 else list(
+        np.arange(-max_deg, max_deg + 1e-9, deg_step))
+
+    for deg in degs:
+        if deg == 0.0:
+            rot = sub
+        else:
+            M = cv2.getRotationMatrix2D((cx, cy), float(deg), 1.0)
+            rot = cv2.warpAffine(sub, M, (w, h), flags=cv2.INTER_NEAREST,
+                                 borderValue=0)
+        band = cv2.dilate(cv2.morphologyEx(rot, cv2.MORPH_GRADIENT, k3),
+                          k5).astype(bool)
+        flipped = band[:, ::-1]
+        for s in range(-max_shift, max_shift + 1):
+            m = shift_h(flipped, s)
+            u = np.logical_or(band, m).sum()
+            v = float(np.logical_and(band, m).sum() / u) if u else 0.0
+            if deg == 0.0 and s == 0:
+                fixed = v
+            if v > best[0]:
+                best = (v, s, float(deg))
+
+    if fixed is None:
+        return None
+    return fixed, best[0], float(best[1]), best[2]
+
+
+def pose_dispersion(offsets_gen, offsets_real):
+    """Dispersion of the mirror-axis offset: a POSE diversity measure.
+
+    Real catalogue frames sit off-centre by a few px (slight yaw extends one
+    temple); a generator that pins every frame's symmetry axis to the image
+    centre has lost a real axis of variation that FID, KID, LPIPS and
+    ab_coverage are all blind to.
+
+    Returns dict of std/IQR for both sets plus the generated/real std ratio
+    (1.0 = matched, << 1.0 = pose collapse).
+    """
+    g = np.asarray(offsets_gen, dtype=float)
+    r = np.asarray(offsets_real, dtype=float)
+    g = g[np.isfinite(g)]
+    r = r[np.isfinite(r)]
+    if g.size == 0 or r.size == 0:
+        return None
+
+    def iqr(a):
+        return float(np.percentile(a, 75) - np.percentile(a, 25))
+
+    return {
+        'offset_std_gen': float(g.std()),
+        'offset_std_real': float(r.std()),
+        'offset_std_ratio': float(g.std() / r.std()) if r.std() > 0 else float('nan'),
+        'offset_iqr_gen': iqr(g),
+        'offset_iqr_real': iqr(r),
+        'offcentre_frac_gen': float((np.abs(g) >= 3).mean()),
+        'offcentre_frac_real': float((np.abs(r) >= 3).mean()),
+    }
+
+
 def descriptor_matrix(images_rgb):
     """Descriptor matrix (N, len(DESCRIPTOR_NAMES)) for a list of RGB images.
 

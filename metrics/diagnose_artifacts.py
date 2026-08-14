@@ -59,7 +59,12 @@ from evaluate_diversity import list_images, load_rgb
 
 CHECKS = ['n_fragments', 'n_holes', 'symmetry_iou', 'lens_mismatch',
           'speckle_frac', 'sharpness', 'rim_breaks', 'rim_contrast',
-          'contour_wobble', 'edge_sym', 'appearance_sym']
+          'contour_wobble', 'edge_sym', 'edge_sym_aligned', 'appearance_sym']
+
+# Recorded per image but NOT flagged: the mirror-axis offset is pose, not a
+# defect (real frames sit up to ~6 px off-centre). Its DISPERSION across a
+# set is a diversity measure - see evaluate_diversity section F.
+EXTRA_SCORES = ['mirror_offset', 'mirror_rot']
 
 # Direction of badness per check: 'high' = larger is worse, 'low' = smaller
 # is worse, 'both' = outside the real range either way is bad.
@@ -73,7 +78,8 @@ DIRECTION = {
     'rim_breaks': 'high',    # lens holes that only exist after gap-closing
     'rim_contrast': 'low',   # weak boundary gradient = ghost/fading frame
     'contour_wobble': 'high',  # wavy/wonky rim outlines
-    'edge_sym': 'low',         # boundary-band mirror IoU
+    'edge_sym': 'low',         # boundary-band mirror IoU (POSE-CONFOUNDED)
+    'edge_sym_aligned': 'low',  # same, with the mirror axis fitted per image
     'appearance_sym': 'high',  # Lab distance to mirrored frame
 }
 
@@ -196,12 +202,25 @@ def artifact_scores(img_rgb):
     else:
         appearance_sym = 255.0
 
+    # Pose-aligned edge symmetry. edge_sym above reflects about the bbox
+    # centre line, which is ~7x more sensitive to photographic pose than to
+    # the left/right shape difference it is meant to catch (a 2 degree tilt
+    # costs 0.51 of IoU on a perfectly symmetric synthetic frame; genuine
+    # temple asymmetry costs 0.07). Fitting the axis per image leaves shape.
+    axis = dm.mirror_axis_symmetry(sil_u8)
+    if axis is None:
+        edge_sym_aligned, mirror_offset, mirror_rot = edge_sym, 0.0, 0.0
+    else:
+        _, edge_sym_aligned, mirror_offset, mirror_rot = axis
+
     return {'n_fragments': n_fragments, 'n_holes': n_holes,
             'symmetry_iou': symmetry_iou, 'lens_mismatch': lens_mismatch,
             'speckle_frac': speckle_frac, 'sharpness': sharpness,
             'rim_breaks': rim_breaks, 'rim_contrast': rim_contrast,
             'contour_wobble': contour_wobble, 'edge_sym': edge_sym,
-            'appearance_sym': appearance_sym}
+            'edge_sym_aligned': edge_sym_aligned,
+            'appearance_sym': appearance_sym,
+            'mirror_offset': mirror_offset, 'mirror_rot': mirror_rot}
 
 
 def score_set(paths, desc):

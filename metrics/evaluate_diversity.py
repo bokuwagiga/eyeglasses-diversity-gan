@@ -150,6 +150,33 @@ def lpips_pairwise(images, n_pairs=500, seed=0, desc='LPIPS'):
 # Report
 
 
+def mirror_axes(silhouettes, desc):
+    """Per-image (fixed IoU, aligned IoU, axis offset px) for a silhouette list."""
+    rows = []
+    for sil in tqdm(silhouettes, desc=desc):
+        if sil is None:
+            continue
+        r = dm.mirror_axis_symmetry(sil)
+        if r is not None:
+            rows.append(r[:3])
+    return np.asarray(rows, dtype=float)
+
+
+def pose_section(sil_gen, sil_real):
+    g = mirror_axes(sil_gen, 'Mirror axis gen')
+    r = mirror_axes(sil_real, 'Mirror axis real')
+    if len(g) == 0 or len(r) == 0:
+        return None
+    return {
+        'n_gen': int(len(g)), 'n_real': int(len(r)),
+        'fixed_p50_gen': float(np.median(g[:, 0])),
+        'fixed_p50_real': float(np.median(r[:, 0])),
+        'aligned_p50_gen': float(np.median(g[:, 1])),
+        'aligned_p50_real': float(np.median(r[:, 1])),
+        'dispersion': dm.pose_dispersion(g[:, 2], r[:, 2]),
+    }
+
+
 def write_txt_report(report, path):
     lines = []
     add = lines.append
@@ -214,6 +241,32 @@ def write_txt_report(report, path):
             f'+- {report["lpips"]["gen"]["std"]:.4f}')
         add(f'  real:      {report["lpips"]["real"]["mean"]:.4f} '
             f'+- {report["lpips"]["real"]["std"]:.4f}')
+
+    if report.get('pose'):
+        add('')
+        add('--- F. Pose diversity and shape symmetry (mirror axis) ---')
+        p = report['pose']
+        d = p['dispersion']
+        add(f'  {"quantity":<26}{"generated":>12}{"real":>12}{"ratio":>9}')
+        add(f'  {"axis offset std (px)":<26}{d["offset_std_gen"]:>12.2f}'
+            f'{d["offset_std_real"]:>12.2f}{d["offset_std_ratio"]:>9.2f}')
+        add(f'  {"axis offset IQR (px)":<26}{d["offset_iqr_gen"]:>12.2f}'
+            f'{d["offset_iqr_real"]:>12.2f}')
+        add(f'  {"frac |offset| >= 3 px":<26}{d["offcentre_frac_gen"]:>12.3f}'
+            f'{d["offcentre_frac_real"]:>12.3f}')
+        add('  (std ratio << 1: pose collapse - every frame pinned to the image')
+        add('   centre. Invisible to FID/KID/LPIPS/ab_coverage.)')
+        add('')
+        add(f'  {"mirror IoU p50":<26}{"generated":>12}{"real":>12}{"gap":>9}')
+        add(f'  {"fixed bbox axis":<26}{p["fixed_p50_gen"]:>12.4f}'
+            f'{p["fixed_p50_real"]:>12.4f}'
+            f'{p["fixed_p50_gen"] - p["fixed_p50_real"]:>+9.4f}')
+        add(f'  {"pose-aligned axis":<26}{p["aligned_p50_gen"]:>12.4f}'
+            f'{p["aligned_p50_real"]:>12.4f}'
+            f'{p["aligned_p50_gen"] - p["aligned_p50_real"]:>+9.4f}')
+        add('  (the fixed axis is pose-confounded: a 2 deg tilt costs 0.51 IoU on')
+        add('   a perfectly symmetric frame, real shape asymmetry only 0.07. Only')
+        add('   the aligned gap is a statement about SHAPE.)')
 
     add('=' * 70)
     with open(path, 'w') as f:
@@ -312,6 +365,10 @@ def main():
             'gen': lpips_pairwise(gen_images, args.lpips_pairs, args.seed, 'LPIPS gen'),
             'real': lpips_pairwise(real_images, args.lpips_pairs, args.seed, 'LPIPS real'),
         }
+
+    # F. Pose diversity / shape symmetry
+    print('\n[F] Pose diversity (mirror axis) ...')
+    report['pose'] = pose_section(sil_gen, sil_real)
 
     with open(out_dir / 'diversity_report.json', 'w') as f:
         json.dump(report, f, indent=2)
