@@ -315,7 +315,7 @@ def main():
         'generated_dir': args.generated, 'real_dir': args.real,
         'n_generated': len(gen_images), 'n_real': len(real_images),
         'n_generated_total': len(gen_paths), 'n_real_total': len(real_paths),
-        'seed': args.seed,
+        'seed': args.seed, 'code': dm.code_version(),
     }}
 
     # A. Quality

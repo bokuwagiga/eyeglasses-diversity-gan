@@ -362,7 +362,8 @@ def main():
         'meta': {'real_dir': args.real, 'generated_dir': args.generated,
                  'n_real': len(real_kept), 'n_gen': len(gen_kept),
                  'real_failed_sil': real_failed, 'gen_failed_sil': gen_failed,
-                 'lo_pct': args.lo_pct, 'hi_pct': args.hi_pct},
+                 'lo_pct': args.lo_pct, 'hi_pct': args.hi_pct,
+                 'code': dm.code_version()},
         'thresholds': thresholds,
         'flag_rate_real': {c: float(flags_real[:, j].mean())
                            for j, c in enumerate(CHECKS)},

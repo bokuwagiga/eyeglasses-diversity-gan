@@ -148,6 +148,33 @@ def setup_directories():
         d.mkdir(parents=True, exist_ok=True)
 
 
+def code_version():
+    """Git commit of the training code, plus whether the tree was dirty.
+
+    Needed because the generator architecture is not fixed across the
+    project: mirror coupling and the learned mirror axis each change what
+    `--output results/foo` actually trained, and a checkpoint carries no
+    record of which one produced it.
+    """
+    info = {'torch': torch.__version__,
+            'cuda': torch.version.cuda,
+            'gpu': torch.cuda.get_device_name(0) if torch.cuda.is_available()
+                   else None}
+    repo = Path(__file__).resolve().parent.parent
+    try:
+        import subprocess
+        run = lambda a: subprocess.run(  # noqa: E731
+            a, cwd=str(repo), capture_output=True, text=True, timeout=10)
+        head = run(['git', 'rev-parse', 'HEAD'])
+        if head.returncode == 0:
+            info['git_commit'] = head.stdout.strip()
+            info['git_dirty'] = bool(
+                run(['git', 'status', '--porcelain']).stdout.strip())
+    except Exception:
+        pass
+    return info
+
+
 def save_run_config(args):
     """Snapshot the effective configuration of this run for reproducibility.
 
@@ -158,6 +185,15 @@ def save_run_config(args):
     r1_gamma 5, batch 16, ada_color_max_p 0 - was overwritten with CLI
     defaults by a later --generate-only call; the true values survive only
     in the experiment log).
+
+    run_config.json still holds the LATEST launch, but every launch also
+    appends to run_config_history.json. A long run is in practice a chain
+    of resumes (sharp1 reached ep1200 in five segments), and the
+    single-file snapshot recorded only the last one - so the record of
+    what was actually run was being destroyed as the run progressed. The
+    history file is what the article's reproducibility section is built
+    from; segment boundaries can be cross-checked against the total_hrs
+    resets in metrics/training_metrics.json.
     """
     merged = {**vars(Config), **vars(cfg)}  # class defaults + CLI overrides
     payload = {k: (str(v) if isinstance(v, torch.device) else v)
@@ -165,10 +201,24 @@ def save_run_config(args):
                if not k.startswith('_')
                and isinstance(v, (int, float, str, bool, torch.device))}
     payload['cli_args'] = vars(args)
+    payload['env'] = code_version()
+    payload['launched_at'] = time.strftime('%Y-%m-%dT%H:%M:%S')
     name = 'generation_config.json' if getattr(args, 'generate_only', None) \
         else 'run_config.json'
     with open(OUTPUT_ROOT / name, 'w') as f:
         json.dump(payload, f, indent=2)
+
+    hist_path = OUTPUT_ROOT / 'run_config_history.json'
+    history = []
+    if hist_path.exists():
+        try:
+            with open(hist_path) as f:
+                history = json.load(f)
+        except Exception:
+            history = []
+    history.append(payload)
+    with open(hist_path, 'w') as f:
+        json.dump(history, f, indent=2)
 
 
 # Dataset

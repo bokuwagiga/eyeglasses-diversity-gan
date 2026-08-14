@@ -30,10 +30,37 @@ Every public function takes numpy image arrays or feature matrices and is
 independent of file layout; see evaluate_diversity.py for the CLI driver.
 """
 
+import os
+import subprocess
+
 import numpy as np
 import cv2
 from scipy.ndimage import binary_fill_holes
 from scipy.spatial.distance import jensenshannon
+
+
+def code_version():
+    """Git commit of the metric code, for stamping report files.
+
+    The suite is this article's contribution and it has changed during the
+    project: artifact thresholds moved from p0.5-p99.5 to p2-p98, and
+    edge_sym gained a pose-aligned counterpart. An unstamped report cannot
+    be placed on either side of those changes, so reports from different
+    dates are not safely comparable.
+    """
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    info = {}
+    try:
+        head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=repo,
+                              capture_output=True, text=True, timeout=10)
+        if head.returncode == 0:
+            info['git_commit'] = head.stdout.strip()
+            info['git_dirty'] = bool(subprocess.run(
+                ['git', 'status', '--porcelain'], cwd=repo,
+                capture_output=True, text=True, timeout=10).stdout.strip())
+    except Exception:
+        pass
+    return info
 
 
 # 1. Silhouette extraction
