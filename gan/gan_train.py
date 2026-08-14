@@ -99,6 +99,10 @@ class Config:
     # compared. Targets the residual temple asymmetry (sharp1 ep1200:
     # frame front -3.6% vs real mirror-IoU, temples -12.9%).
     g_mirror_coupling = False
+    # Same coupling, but reflecting about a per-sample axis predicted from w
+    # rather than the feature-map centre, so it does not force every frame to
+    # sit centred (mirror1 cut the axis-offset std from real 2.97 px to 1.25).
+    g_mirror_axis = False
     xflip = True         # dataset-level horizontal flips (doubles effective
                          # data; SG2-ADA small-dataset prescription)
     d_edge_channel = False  # feed D a Sobel edge-magnitude channel (4th input
@@ -399,15 +403,50 @@ class MirrorCoupling(nn.Module):
     output where the data demands it (branded temple, directional
     lighting, and patterned acetate, which sharp1 correctly does NOT
     mirror - over-mirroring measured at 0.59% against an expected 10%).
+
+    With w_dim given, the mirror axis is predicted per sample from w
+    instead of being pinned to the feature-map centre. The fixed-centre
+    version reflects about column (W-1)/2, so it only rewards frames whose
+    symmetry axis already sits at the image centre. Real catalogue shots do
+    not: 40% of them need a >=3 px axis shift (offset std 2.97 px), because
+    slight yaw extends one temple further than the other. Measured on
+    mirror1, the fixed-centre coupling drove that std down to 1.25 - it
+    bought shape symmetry by deleting a real axis of variation, and FID,
+    KID, LPIPS and ab_coverage were all blind to the loss. Reflecting about
+    a learned axis makes the coupling pose-equivariant, so G can place the
+    frame off-centre and still share shape across the axis.
     """
 
-    def __init__(self, channels):
+    # Half-width units; 0.05 spans about +-13 px at 512 wide, roughly 4x
+    # the real offset std, so tanh stays in its linear region.
+    MAX_AXIS = 0.05
+
+    def __init__(self, channels, w_dim=None):
         super().__init__()
         self.proj = nn.Conv2d(2 * channels, channels, 1)
         self.gamma = nn.Parameter(torch.zeros(1))
+        if w_dim is None:
+            self.axis = None
+        else:
+            self.axis = nn.Linear(w_dim, 1)
+            nn.init.zeros_(self.axis.weight)
+            nn.init.zeros_(self.axis.bias)
 
-    def forward(self, x):
-        pair = torch.cat([x, torch.flip(x, dims=[3])], dim=1)
+    def forward(self, x, w):
+        flipped = torch.flip(x, dims=[3])
+        if self.axis is not None:
+            # Reflecting about an axis a (normalised half-widths from the
+            # centre) is a flip followed by a translation of 2a. affine_grid
+            # maps output coords to input coords, hence the -2a.
+            a = torch.tanh(self.axis(w)) * self.MAX_AXIS
+            theta = x.new_zeros(x.size(0), 2, 3)
+            theta[:, 0, 0] = 1.0
+            theta[:, 1, 1] = 1.0
+            theta[:, 0, 2] = -2.0 * a[:, 0]
+            grid = F.affine_grid(theta, x.shape, align_corners=False)
+            flipped = F.grid_sample(flipped, grid, mode='bilinear',
+                                    padding_mode='zeros', align_corners=False)
+        pair = torch.cat([x, flipped], dim=1)
         return x + self.gamma * self.proj(pair)
 
 
@@ -427,7 +466,7 @@ class Generator(nn.Module):
     CHANNELS = [512, 256, 256, 128, 64, 32, 16]
 
     def __init__(self, z_dim=512, w_dim=512, mapping_depth=8, g_width_mult=1.0,
-                 mirror_coupling=False):
+                 mirror_coupling=False, mirror_axis=False):
         super().__init__()
         self.w_dim = w_dim
         self.num_stages = len(self.CHANNELS) - 1
@@ -449,9 +488,11 @@ class Generator(nn.Module):
         # Mirror coupling at the 32x64 and 64x128 stages. Both, because the
         # temples run out to the image extremes: 32x64 sets their overall
         # placement and 64x128 their boundary shape.
-        self.mirror_idx = (2, 3) if mirror_coupling else ()
+        self.mirror_idx = (2, 3) if (mirror_coupling or mirror_axis) else ()
+        axis_dim = w_dim if mirror_axis else None
         self.mirror = nn.ModuleDict(
-            {str(i): MirrorCoupling(ch[i + 1]) for i in self.mirror_idx})
+            {str(i): MirrorCoupling(ch[i + 1], axis_dim)
+             for i in self.mirror_idx})
 
         for i in range(self.num_stages):
             self.blocks.append(nn.ModuleList([
@@ -481,7 +522,7 @@ class Generator(nn.Module):
             if i == self.attn_idx:
                 x = self.attention(x)
             if str(i) in self.mirror:
-                x = self.mirror[str(i)](x)
+                x = self.mirror[str(i)](x, w_i)
             rgb_out = rgb_layer(x, w_i)
             rgb = rgb_out if rgb is None else self.upsample(rgb) + rgb_out
 
@@ -899,7 +940,8 @@ def train(end_epoch, resume=False, checkpoint_path=None, reset_d=False):
 
     G = Generator(cfg.latent_dim, cfg.w_dim, cfg.mapping_depth,
                   cfg.g_width_mult,
-                  cfg.g_mirror_coupling).to(cfg.device)
+                  cfg.g_mirror_coupling,
+                  cfg.g_mirror_axis).to(cfg.device)
     D = Discriminator(cfg.d_width_mult, cfg.d_edge_channel).to(cfg.device)
 
     vgg = VGGPerceptualLoss().to(cfg.device) if cfg.perceptual_weight > 0 else None
@@ -1247,7 +1289,8 @@ def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=3
     ckpt = torch.load(str(checkpoint_path), map_location=cfg.device)
     G = Generator(cfg.latent_dim, cfg.w_dim, cfg.mapping_depth,
                   cfg.g_width_mult,
-                  cfg.g_mirror_coupling).to(cfg.device)
+                  cfg.g_mirror_coupling,
+                  cfg.g_mirror_axis).to(cfg.device)
     G.load_state_dict(ckpt['G'])
     if 'ema' in ckpt:
         for name, param in G.named_parameters():
@@ -1428,6 +1471,15 @@ if __name__ == '__main__':
                              'Changes the G architecture - NOT resume- or '
                              'generate-compatible with checkpoints trained '
                              'without it')
+    parser.add_argument('--g-mirror-axis', action='store_true',
+                        help='Mirror coupling with a per-sample mirror axis '
+                             'predicted from w, instead of the fixed '
+                             'feature-map centre. Implies --g-mirror-coupling. '
+                             'The fixed axis collapses pose diversity (real '
+                             'axis-offset std 2.97 px, mirror1 1.25); a '
+                             'learned axis keeps the coupling '
+                             'pose-equivariant. Separate architecture again - '
+                             'not compatible with either of the other two')
     parser.add_argument('--reset-d', action='store_true',
                         help='On resume, load only G/EMA from the checkpoint '
                              'and start a fresh discriminator (for introducing '
@@ -1469,6 +1521,7 @@ if __name__ == '__main__':
     cfg.d_width_mult = args.d_width_mult
     cfg.g_width_mult = args.g_width_mult
     cfg.g_mirror_coupling = args.g_mirror_coupling
+    cfg.g_mirror_axis = args.g_mirror_axis
     cfg.ppl_batch_size = args.ppl_batch_size
     cfg.d_edge_channel = args.d_edge_channel
     cfg.d_edge_warmup = args.d_edge_warmup
