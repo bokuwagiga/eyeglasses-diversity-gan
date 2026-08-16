@@ -482,20 +482,44 @@ class MirrorCoupling(nn.Module):
             nn.init.zeros_(self.axis.weight)
             nn.init.zeros_(self.axis.bias)
 
+    @staticmethod
+    def _shift_h(x, d):
+        """Translate x horizontally by d px per sample, bilinear, zero-padded.
+
+        Written with pad+gather rather than the obvious affine_grid /
+        grid_sample because PPL differentiates the generator output with
+        create_graph=True and then backprops through that gradient. CUDA
+        has no double-backward formula for grid_sampler_2d_backward, so
+        the grid_sample version dies on the first optimizer step with
+        "derivative for aten::grid_sampler_2d_backward is not
+        implemented" - and only on CUDA, since the CPU kernel does have
+        one. pad, gather, mul and add are all twice differentiable
+        everywhere.
+        """
+        n, c, h, w = x.shape
+        pad = int(math.ceil(MirrorCoupling.MAX_AXIS * w)) + 1
+        xp = F.pad(x, (pad, pad))
+        wp = w + 2 * pad
+        base = torch.arange(w, device=x.device, dtype=torch.float32) + pad
+        src = (base.view(1, w) - d.view(n, 1).float()).clamp(0, wp - 1)
+        lo = src.floor()
+        frac = (src - lo).to(x.dtype).view(n, 1, 1, w)
+        # expand() keeps these as stride-0 views, so the index tensors cost
+        # a row each rather than a full (n, c, h, w) int64 buffer.
+        i0 = lo.long().view(n, 1, 1, w).expand(n, c, h, w)
+        i1 = (lo + 1).clamp(max=wp - 1).long().view(n, 1, 1, w).expand(n, c, h, w)
+        g0 = torch.gather(xp, 3, i0)
+        g1 = torch.gather(xp, 3, i1)
+        return g0 + (g1 - g0) * frac
+
     def forward(self, x, w):
         flipped = torch.flip(x, dims=[3])
         if self.axis is not None:
-            # Reflecting about an axis a (normalised half-widths from the
-            # centre) is a flip followed by a translation of 2a. affine_grid
-            # maps output coords to input coords, hence the -2a.
+            # Reflecting about an axis a px right of centre is a flip
+            # followed by a translation of 2a. With a expressed in
+            # half-widths, a_px = a * W/2, so the translation is a * W.
             a = torch.tanh(self.axis(w)) * self.MAX_AXIS
-            theta = x.new_zeros(x.size(0), 2, 3)
-            theta[:, 0, 0] = 1.0
-            theta[:, 1, 1] = 1.0
-            theta[:, 0, 2] = -2.0 * a[:, 0]
-            grid = F.affine_grid(theta, x.shape, align_corners=False)
-            flipped = F.grid_sample(flipped, grid, mode='bilinear',
-                                    padding_mode='zeros', align_corners=False)
+            flipped = self._shift_h(flipped, a[:, 0] * x.size(3))
         pair = torch.cat([x, flipped], dim=1)
         return x + self.gamma * self.proj(pair)
 
