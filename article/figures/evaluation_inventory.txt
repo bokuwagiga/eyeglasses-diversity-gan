@@ -1,0 +1,33 @@
+model / checkpoint                 generation strategy                 FID     Prec   Recall    ab cov
+------------------------------------------------------------------------------------------------------
+sg2f/best                          layered 1.0/1.2@3 pure           41.542    0.714    0.000    0.0820
+divcfg_probe/best                  psi 0.7 mixed                    33.956    0.419    0.013    0.1250
+ppl4/last (post-collapse)          layered 1.0/1.2@3 pure           27.230    0.867    0.005    0.1641
+r1gamma5/last                      psi 0.7 mixed                    23.972    0.988    0.041    0.1875
+r1gamma10/best                     psi 0.7 mixed                    22.714    0.886    0.013    0.1602
+r1gamma5/best                      psi 0.7 mixed                    21.294    0.984    0.035    0.1562
+rebalance/best                     layered 1.0/1.2@3 pure           18.599    0.805    0.070    0.6836
+r1gamma5/best                      psi 1.0 mixed                    15.171    0.919    0.102    0.2656
+nocolorada/best                    psi 0.85 mixed                   13.085    0.963    0.103    0.2188
+divcfg2/best                       psi 0.7 mixed                    12.550    0.894    0.152    0.1328
+nocolorada/best                    psi 1.0 mixed                    11.250    0.924    0.154    0.2695
+nocolorada/best                    psi 1.2 pure                     10.756    0.765    0.324    0.3945
+nocolorada/best                    layered 1.0/1.2@3 pure +precision filter   10.513    0.957    0.169    0.3438
+nocolorada/best                    psi 1.2 mixed                    10.456    0.844    0.235    0.3516
+nocolorada/best                    psi 1.0 pure                     10.408    0.890    0.189    0.3125
+nocolorada/best                    psi 1.2 pure +precision filter   10.345    0.923    0.250    0.3555
+nocolorada/best                    layered 1.0/1.2@3 pure +centers8   10.216    0.878    0.203    0.3516
+nocolorada/best                    layered 1.0/1.2@3 pure           10.203    0.879    0.211    0.3672
+wide_g2d15/best                    layered 1.0/1.2@3 pure            9.004    0.877    0.276    0.2500
+ppl4/best                          layered 1.0/1.2@3 pure            8.902    0.838    0.337    0.4219
+rebalance2/best                    layered 1.0/1.2@3 pure +zero-flag filter    8.566    0.890    0.342    0.5195
+rebalance2/best                    layered 1.0/1.2@3 pure +max-1-flag filter    7.956    0.892    0.342    0.5469
+edgeD/best                         layered 1.0/1.2@3 pure +max-1-flag filter    7.945    0.893    0.339    0.5586
+rebalance2/best                    layered 1.0/1.2@3 pure            7.802    0.880    0.368    0.5664
+rebalance3/best                    layered 1.0/1.2@3 pure            7.168    0.845    0.505    0.1758
+rebalance4/best                    layered 1.0/1.2@3 pure            5.031    0.835    0.623    0.6133
+sharp1@ep800/best                  layered 1.0/1.2@3 pure            4.499    0.898    0.617    0.6641
+mirror1/best                       layered 1.0/1.2@3 pure            4.479    0.848    0.667    0.5234
+mirror2/best                       layered 1.0/1.2@3 pure            4.064    0.869    0.705    0.6133
+sharp1@ep1200/best                 layered 1.0/1.2@3 pure            3.901    0.887    0.655    0.6289
+sharp1@ep1600/best                 layered 1.0/1.2@3 pure            3.583    0.918    0.626    0.5898

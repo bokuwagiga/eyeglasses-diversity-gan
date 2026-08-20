@@ -1,0 +1,38 @@
+                                 1       2       3       4       5       6       7       8       9      10      11      12
+--------------------------------------------------------------------------------------------------------------------------
+divcfg2/best                     .       .       .       .       .   12.55       .       .       .       .       .       .
+divcfg_probe/best                .       .       .       .       .   33.96       .       .       .       .       .       .
+edgeD/best                       .       .    7.94       .       .       .       .       .       .       .       .       .
+mirror1/best                  4.48       .       .       .       .       .       .       .       .       .       .       .
+mirror2/best                  4.06       .       .       .       .       .       .       .       .       .       .       .
+nocolorada/best              10.20   10.22       .   10.51       .       .   13.08   11.25   10.41   10.46   10.76   10.35
+ppl4/best                     8.90       .       .       .       .       .       .       .       .       .       .       .
+ppl4/last (post-collapse)    27.23       .       .       .       .       .       .       .       .       .       .       .
+r1gamma10/best                   .       .       .       .       .   22.71       .       .       .       .       .       .
+r1gamma5/best                    .       .       .       .       .   21.29       .   15.17       .       .       .       .
+r1gamma5/last                    .       .       .       .       .   23.97       .       .       .       .       .       .
+rebalance/best               18.60       .       .       .       .       .       .       .       .       .       .       .
+rebalance2/best               7.80       .    7.96       .    8.57       .       .       .       .       .       .       .
+rebalance3/best               7.17       .       .       .       .       .       .       .       .       .       .       .
+rebalance4/best               5.03       .       .       .       .       .       .       .       .       .       .       .
+sg2f/best                    41.54       .       .       .       .       .       .       .       .       .       .       .
+sharp1@ep1200/best            3.90       .       .       .       .       .       .       .       .       .       .       .
+sharp1@ep1600/best            3.58       .       .       .       .       .       .       .       .       .       .       .
+sharp1@ep800/best             4.50       .       .       .       .       .       .       .       .       .       .       .
+wide_g2d15/best               9.00       .       .       .       .       .       .       .       .       .       .       .
+
+columns (generation strategies):
+   1  layered 1.0/1.2@3 pure
+   2  layered 1.0/1.2@3 pure +centers8
+   3  layered 1.0/1.2@3 pure +max-1-flag filter
+   4  layered 1.0/1.2@3 pure +precision filter
+   5  layered 1.0/1.2@3 pure +zero-flag filter
+   6  psi 0.7 mixed
+   7  psi 0.85 mixed
+   8  psi 1.0 mixed
+   9  psi 1.0 pure
+  10  psi 1.2 mixed
+  11  psi 1.2 pure
+  12  psi 1.2 pure +precision filter
+
+31 of 240 cells measured (13%); "." = never run
