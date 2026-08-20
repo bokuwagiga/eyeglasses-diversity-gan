@@ -170,13 +170,20 @@ def mirror_axis_symmetry(silhouette, max_shift=8, max_deg=3.0, deg_step=1.0):
     silhouettes a 2 degree tilt costs 0.51 of IoU on a PERFECTLY symmetric
     frame, while genuine temple asymmetry costs only 0.07 - roughly 7x more
     sensitive to pose than to the defect it is named for. Measured on the
-    real set, 40% of catalogue photos need a >=3 px axis shift.
+    real set, 42% of catalogue photos need a >=3 px axis shift.
 
     Searching the axis over horizontal shift and small rotation and keeping
-    the best IoU removes pose, leaving shape. The offset itself is a useful
-    quantity in its own right: its dispersion across a set measures POSE
-    diversity, which mirror coupling in G was found to collapse (real shift
-    std 2.97, mirror1 1.25) without any other metric noticing.
+    the best IoU removes pose, leaving shape.
+
+    The recovered offset is NOT lateral placement. Verified on synthetic
+    silhouettes: translating a symmetric frame by +12 or -20 px leaves the
+    offset at exactly 0.0, while foreshortening one temple by 25% (yaw)
+    moves it to 8 px. The search re-centres on the bbox, so a pure
+    translation is invisible to it by construction. What the offset
+    measures is YAW - the differential temple foreshortening of an
+    off-axis shot - which is a genuine shape asymmetry, not a framing
+    choice. Its dispersion across a set is therefore a measure of how much
+    perspective variety the generator reproduces.
 
     Returns (fixed, aligned, shift_px, rot_deg) or None.
     """
@@ -238,15 +245,22 @@ def mirror_axis_symmetry(silhouette, max_shift=8, max_deg=3.0, deg_step=1.0):
 
 
 def pose_dispersion(offsets_gen, offsets_real):
-    """Dispersion of the mirror-axis offset: a POSE diversity measure.
+    """Dispersion of the mirror-axis offset: a YAW diversity measure.
 
-    Real catalogue frames sit off-centre by a few px (slight yaw extends one
-    temple); a generator that pins every frame's symmetry axis to the image
-    centre has lost a real axis of variation that FID, KID, LPIPS and
-    ab_coverage are all blind to.
+    Real catalogue frames are shot slightly off-axis, which foreshortens
+    one temple relative to the other. A generator that emits only
+    fronto-parallel frames has lost that axis of variation, and FID, KID,
+    LPIPS and ab_coverage are all blind to the loss.
+
+    This is measured, not assumed: an explicit mirror-symmetry prior in G
+    drops the ratio to 0.45 (mirror2) and 0.42 (mirror1) while every other
+    metric stays flat or improves. Note the mechanism - enforcing mirror
+    symmetry directly forbids the asymmetry that yaw produces, so ANY
+    mirror prior suppresses this, regardless of which axis it reflects
+    about. Plain training reproduces it (sharp1 ratio 1.07).
 
     Returns dict of std/IQR for both sets plus the generated/real std ratio
-    (1.0 = matched, << 1.0 = pose collapse).
+    (1.0 = matched, << 1.0 = yaw collapse).
     """
     g = np.asarray(offsets_gen, dtype=float)
     r = np.asarray(offsets_real, dtype=float)

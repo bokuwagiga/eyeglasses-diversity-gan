@@ -100,8 +100,9 @@ class Config:
     # frame front -3.6% vs real mirror-IoU, temples -12.9%).
     g_mirror_coupling = False
     # Same coupling, but reflecting about a per-sample axis predicted from w
-    # rather than the feature-map centre, so it does not force every frame to
-    # sit centred (mirror1 cut the axis-offset std from real 2.97 px to 1.25).
+    # rather than the feature-map centre. Does NOT restore yaw diversity (see
+    # MirrorCoupling), but gives the best recall and colour coverage of any
+    # run and near-real shape symmetry.
     g_mirror_axis = False
     xflip = True         # dataset-level horizontal flips (doubles effective
                          # data; SG2-ADA small-dataset prescription)
@@ -455,16 +456,25 @@ class MirrorCoupling(nn.Module):
     mirror - over-mirroring measured at 0.59% against an expected 10%).
 
     With w_dim given, the mirror axis is predicted per sample from w
-    instead of being pinned to the feature-map centre. The fixed-centre
-    version reflects about column (W-1)/2, so it only rewards frames whose
-    symmetry axis already sits at the image centre. Real catalogue shots do
-    not: 40% of them need a >=3 px axis shift (offset std 2.97 px), because
-    slight yaw extends one temple further than the other. Measured on
-    mirror1, the fixed-centre coupling drove that std down to 1.25 - it
-    bought shape symmetry by deleting a real axis of variation, and FID,
-    KID, LPIPS and ab_coverage were all blind to the loss. Reflecting about
-    a learned axis makes the coupling pose-equivariant, so G can place the
-    frame off-centre and still share shape across the axis.
+    instead of being pinned to the feature-map centre.
+
+    This was introduced to recover the yaw diversity that mirror1 lost
+    (axis-offset std 2.97 real vs 1.25), on the theory that reflecting
+    about a fixed column forces every frame to be centred. That theory is
+    WRONG and the run refuted it: mirror2 collapsed yaw just as hard
+    (ratio 0.45 vs mirror1's 0.42). The mirror-axis offset is
+    translation-invariant by construction - shifting a symmetric
+    silhouette by 20 px leaves it at exactly 0.0 - so it never measured
+    centring in the first place. It measures the differential temple
+    foreshortening of an off-axis shot, and enforcing mirror symmetry
+    forbids exactly that asymmetry no matter which axis is used. Yaw
+    collapse is intrinsic to a mirror prior, not to this implementation.
+
+    Keep the learned axis anyway: it is a large win on every other axis
+    (recall 0.705 vs mirror1 0.667 and the best of any run, ab_coverage
+    0.6133 vs 0.5234, aligned symmetry gap -0.017 vs sharp1's -0.059)
+    with no over-mirroring of texture (appearance_sym flag 1.06% vs
+    mirror1's 0.30% against a real 2.01%).
     """
 
     # Half-width units; 0.05 spans about +-13 px at 512 wide, roughly 4x
@@ -1549,10 +1559,10 @@ if __name__ == '__main__':
                         help='Mirror coupling with a per-sample mirror axis '
                              'predicted from w, instead of the fixed '
                              'feature-map centre. Implies --g-mirror-coupling. '
-                             'The fixed axis collapses pose diversity (real '
-                             'axis-offset std 2.97 px, mirror1 1.25); a '
-                             'learned axis keeps the coupling '
-                             'pose-equivariant. Separate architecture again - '
+                             'Best recall (0.705) and colour coverage of any '
+                             'run with near-real shape symmetry; still '
+                             'collapses yaw diversity, which is intrinsic to '
+                             'any mirror prior. Separate architecture again - '
                              'not compatible with either of the other two')
     parser.add_argument('--reset-d', action='store_true',
                         help='On resume, load only G/EMA from the checkpoint '

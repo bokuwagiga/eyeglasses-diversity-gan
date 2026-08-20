@@ -244,7 +244,7 @@ def write_txt_report(report, path):
 
     if report.get('pose'):
         add('')
-        add('--- F. Pose diversity and shape symmetry (mirror axis) ---')
+        add('--- F. Yaw diversity and shape symmetry (mirror axis) ---')
         p = report['pose']
         d = p['dispersion']
         add(f'  {"quantity":<26}{"generated":>12}{"real":>12}{"ratio":>9}')
@@ -254,8 +254,10 @@ def write_txt_report(report, path):
             f'{d["offset_iqr_real"]:>12.2f}')
         add(f'  {"frac |offset| >= 3 px":<26}{d["offcentre_frac_gen"]:>12.3f}'
             f'{d["offcentre_frac_real"]:>12.3f}')
-        add('  (std ratio << 1: pose collapse - every frame pinned to the image')
-        add('   centre. Invisible to FID/KID/LPIPS/ab_coverage.)')
+        add('  (the offset is translation-invariant by construction: it measures')
+        add('   YAW, the differential temple foreshortening of an off-axis shot,')
+        add('   not where the frame sits. std ratio << 1 = yaw collapse, which')
+        add('   FID/KID/LPIPS/ab_coverage are all blind to.)')
         add('')
         add(f'  {"mirror IoU p50":<26}{"generated":>12}{"real":>12}{"gap":>9}')
         add(f'  {"fixed bbox axis":<26}{p["fixed_p50_gen"]:>12.4f}'

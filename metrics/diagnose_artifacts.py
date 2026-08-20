@@ -61,9 +61,10 @@ CHECKS = ['n_fragments', 'n_holes', 'symmetry_iou', 'lens_mismatch',
           'speckle_frac', 'sharpness', 'rim_breaks', 'rim_contrast',
           'contour_wobble', 'edge_sym', 'edge_sym_aligned', 'appearance_sym']
 
-# Recorded per image but NOT flagged: the mirror-axis offset is pose, not a
-# defect (real frames sit up to ~6 px off-centre). Its DISPERSION across a
-# set is a diversity measure - see evaluate_diversity section F.
+# Recorded per image but NOT flagged: the mirror-axis offset is yaw (one
+# temple foreshortened by an off-axis shot), which 42% of real catalogue
+# photos have. Its DISPERSION across a set is a diversity measure - see
+# evaluate_diversity section F.
 EXTRA_SCORES = ['mirror_offset', 'mirror_rot']
 
 # Direction of badness per check: 'high' = larger is worse, 'low' = smaller
