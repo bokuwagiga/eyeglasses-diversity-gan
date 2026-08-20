@@ -35,9 +35,13 @@ FROM_LOG = {
     'results/r1gamma5/diversity': ('r1gamma5/best', 'psi 0.7 mixed'),
     'results/r1gamma5/diversity_last': ('r1gamma5/last', 'psi 0.7 mixed'),
     'results/r1gamma5_psi10/diversity': ('r1gamma5/best', 'psi 1.0 mixed'),
-    'results/r1gamma10/diversity': ('r1gamma10/best', 'psi 0.7 mixed'),
-    'results/divcfg2/diversity': ('divcfg2/best', 'psi 0.7 mixed'),
-    'results/divcfg_probe/diversity': ('divcfg_probe/best', 'psi 0.7 mixed'),
+    # Runs 3-5 were evaluated at psi 1.0: the log's FID 22.7 / 12.5 / 34
+    # match these reports exactly, and psi 1.0 was the comparison protocol
+    # of that era. Only r1gamma5 has a psi 0.7 pair, which is why it alone
+    # needed a separate _psi10 directory.
+    'results/r1gamma10/diversity': ('r1gamma10/best', 'psi 1.0 mixed'),
+    'results/divcfg2/diversity': ('divcfg2/best', 'psi 1.0 mixed'),
+    'results/divcfg_probe/diversity': ('divcfg_probe/last', 'psi 1.0 mixed'),
     # Run 15/16: the log states the headline protocol and checkpoint_best
     # for both; neither wrote a generation config.
     'results/rebalance3/eval': ('rebalance3/best', 'layered 1.0/1.2@3 pure'),
@@ -66,6 +70,15 @@ CHECKPOINT_AT_GENERATE = {
 
 # Smoke tests on the 60-image toy set: not experiments.
 EXCLUDE = ('smoke_',)
+
+# Reports the log declares void. Kept visible rather than deleted, because
+# a blank cell reads as "never run" and these WERE run - they just measured
+# something other than what the directory name says.
+VOID = {
+    'results/ppl4/diversity':
+        'measured the post-collapse ep400 checkpoint, not ep310 '
+        '(eval used find_latest_checkpoint); superseded by ppl4_best',
+}
 
 # Post-hoc filtering is a generation strategy too, but it is applied by a
 # separate script and leaves no trace in the config, so it is read off the
@@ -153,6 +166,7 @@ def collect(results_root):
         prdc = d['feature_space']['prdc']
         rows.append({
             'dir': rel,
+            'void': VOID.get(rel),
             'model': model or f'UNKNOWN ({rel})',
             'strategy': strat,
             'fid': d['quality']['fid'],
@@ -172,16 +186,20 @@ def write_inventory(rows, out_dir):
         lines.append('%-34s %-30s %8.3f %8.3f %8.3f %9.4f'
                      % (r['model'], r['strategy'], r['fid'], r['precision'],
                         r['recall'], r['ab_coverage']))
+        if r['void']:
+            lines.append('%-34s   VOID: %s' % ('', r['void']))
     txt = '\n'.join(lines)
     (out_dir / 'evaluation_inventory.txt').write_text(txt + '\n')
     print(txt)
 
 
 def write_matrix(rows, out_dir):
-    models = sorted({r['model'] for r in rows})
-    strategies = sorted({r['strategy'] for r in rows})
+    models = sorted({r['model'] for r in rows if not r['void']})
+    strategies = sorted({r['strategy'] for r in rows if not r['void']})
     cell = {}
     for r in rows:
+        if r['void']:
+            continue
         key = (r['model'], r['strategy'])
         if key in cell:
             # Two evaluations claiming the same cell means one of them is

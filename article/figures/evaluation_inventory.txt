@@ -1,15 +1,16 @@
 model / checkpoint                 generation strategy                 FID     Prec   Recall    ab cov
 ------------------------------------------------------------------------------------------------------
 sg2f/best                          layered 1.0/1.2@3 pure           41.542    0.714    0.000    0.0820
-divcfg_probe/best                  psi 0.7 mixed                    33.956    0.419    0.013    0.1250
+divcfg_probe/last                  psi 1.0 mixed                    33.956    0.419    0.013    0.1250
 ppl4/last (post-collapse)          layered 1.0/1.2@3 pure           27.230    0.867    0.005    0.1641
+                                     VOID: measured the post-collapse ep400 checkpoint, not ep310 (eval used find_latest_checkpoint); superseded by ppl4_best
 r1gamma5/last                      psi 0.7 mixed                    23.972    0.988    0.041    0.1875
-r1gamma10/best                     psi 0.7 mixed                    22.714    0.886    0.013    0.1602
+r1gamma10/best                     psi 1.0 mixed                    22.714    0.886    0.013    0.1602
 r1gamma5/best                      psi 0.7 mixed                    21.294    0.984    0.035    0.1562
 rebalance/best                     layered 1.0/1.2@3 pure           18.599    0.805    0.070    0.6836
 r1gamma5/best                      psi 1.0 mixed                    15.171    0.919    0.102    0.2656
 nocolorada/best                    psi 0.85 mixed                   13.085    0.963    0.103    0.2188
-divcfg2/best                       psi 0.7 mixed                    12.550    0.894    0.152    0.1328
+divcfg2/best                       psi 1.0 mixed                    12.550    0.894    0.152    0.1328
 nocolorada/best                    psi 1.0 mixed                    11.250    0.924    0.154    0.2695
 nocolorada/best                    psi 1.2 pure                     10.756    0.765    0.324    0.3945
 nocolorada/best                    layered 1.0/1.2@3 pure +precision filter   10.513    0.957    0.169    0.3438
