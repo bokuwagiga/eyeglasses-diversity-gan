@@ -37,8 +37,13 @@ DEFAULT_RUNS = [
     'mirror2=results/mirror2/eval',
 ]
 
-# Models the article puts forward, drawn filled; the rest are context.
-HEADLINE = {'sharp1 ep1200', 'sharp1 ep1600', 'mirror1', 'mirror2'}
+# Models the article puts forward, labelled in bold; the rest are context.
+# sharp1 ep800 and ep1200 are deliberately not headline models even though
+# ep1200 sits on both fronts: sharp1 was one continued run and gan_train.py
+# overwrites checkpoint_best.pth, so their weights no longer exist. Their
+# numbers stand as a training trajectory, but nobody can generate from
+# them again, which is not something to put forward as a model.
+HEADLINE = {'sharp1 ep1600', 'mirror2'}
 
 
 def find_report(run_dir):
