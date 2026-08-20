@@ -1,20 +1,26 @@
 """Build a labeled real-vs-generated comparison grid for reports.
 
 Samples images at random (fixed seed, no cherry-picking), puts real rows
-on top and generated rows below, with a text label for each block.
+on top and one labeled block per model below.
 
-Usage (on the training PC):
+--generated may be given more than once, as label=path, so several models
+can be compared against a single real block instead of one figure each:
+
     python scripts/make_report_grid.py \
         --real data/source/images \
-        --generated results/ppl4_best/generated/images \
-        --out results/ppl4_best/report_grid.png
+        --generated "sharp1 ep1600=results/sharp1/eval1600/generated/images" \
+        --generated "mirror2=results/mirror2/eval/generated/images" \
+        --out article/figures/grid_models.png
+
+Each block draws from its own seeded stream keyed by its label, so adding
+or reordering a model does not change which images the others show.
 """
 
 import argparse
 import random
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 EXTS = {'.png', '.jpg', '.jpeg', '.bmp', '.webp'}
 
@@ -45,38 +51,48 @@ def load_thumb(path, w, h):
     return img.resize((w, h), Image.LANCZOS)
 
 
+def sample_block(label, folder, n, seed):
+    """n random images from folder, on a stream that depends only on label."""
+    return random.Random(f'{seed}:{label}').sample(list_images(folder), n)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--real', required=True, help='folder with real images')
-    ap.add_argument('--generated', required=True, help='folder with generated images')
+    ap.add_argument('--generated', required=True, action='append',
+                    help='label=folder, repeatable (one block per model)')
     ap.add_argument('--out', required=True, help='output PNG path')
     ap.add_argument('--cols', type=int, default=4)
-    ap.add_argument('--rows', type=int, default=3, help='rows PER block (real / generated)')
+    ap.add_argument('--rows', type=int, default=3, help='rows PER block')
     ap.add_argument('--thumb-width', type=int, default=256, help='thumbnail width px (2:1 aspect)')
     ap.add_argument('--seed', type=int, default=42)
     args = ap.parse_args()
 
-    rng = random.Random(args.seed)
     n = args.cols * args.rows
-    real = rng.sample(list_images(args.real), n)
-    gen = rng.sample(list_images(args.generated), n)
+    blocks = [('Real catalogue images', sample_block('real', args.real, n, args.seed))]
+    for spec in args.generated:
+        label, sep, folder = spec.partition('=')
+        if not sep:
+            label, folder = 'Generated', spec
+        blocks.append((label, sample_block(label, folder, n, args.seed)))
 
     tw = args.thumb_width
     th = tw // 2  # images are 2:1 (512x256 W x H)
     pad = 4
-    label_h = 28
+    label_h = 30
+    font = ImageFont.load_default(size=17)
 
     grid_w = args.cols * tw + (args.cols + 1) * pad
     block_h = args.rows * th + args.rows * pad
-    total_h = 2 * (label_h + block_h) + pad
+    total_h = len(blocks) * (label_h + block_h) + pad
 
     canvas = Image.new('RGB', (grid_w, total_h), 'white')
     draw = ImageDraw.Draw(canvas)
 
     y = 0
-    for label, files in (('Real catalogue images (random sample)', real),
-                         ('Generated images (random sample)', gen)):
-        draw.text((pad + 2, y + 6), label, fill='black')
+    for label, files in blocks:
+        draw.text((pad + 2, y + 7), f'{label}  (random sample, seed {args.seed})',
+                  fill='black', font=font)
         y += label_h
         for i, f in enumerate(files):
             r, c = divmod(i, args.cols)
@@ -88,7 +104,7 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(out)
     print(f'Wrote {out} ({canvas.width}x{canvas.height}, '
-          f'{n} real + {n} generated, seed {args.seed})')
+          f'{len(blocks)} blocks of {n}, seed {args.seed})')
 
 
 if __name__ == '__main__':
