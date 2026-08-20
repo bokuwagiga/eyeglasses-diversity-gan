@@ -87,6 +87,14 @@ class Config:
     ema_decay = 0.999
     save_every = 10
 
+    # Keep a permanent, generator-only snapshot every N epochs (0 = off).
+    # checkpoint_latest/best are overwritten, so a run continued past an
+    # epoch destroys the model that produced that epoch's metrics; sharp1
+    # ep800 and ep1200 are in the results table with no weights left.
+    # A snapshot is ~1/8 the size of a checkpoint (no D, no optimiser
+    # states) and is enough for --generate-only and re-evaluation.
+    snapshot_every = 0
+
     kid_start = 100      # start evaluating KID after this epoch
     kid_interval = 15    # evaluate KID every N epochs after kid_start
     kid_n_real = 1000
@@ -1054,6 +1062,12 @@ def train(end_epoch, resume=False, checkpoint_path=None, reset_d=False):
     if resume and checkpoint_path and os.path.exists(str(checkpoint_path)):
         print(f'Loading checkpoint: {checkpoint_path}')
         ckpt = torch.load(str(checkpoint_path), map_location=cfg.device)
+        if ckpt.get('inference_only'):
+            raise SystemExit(
+                f'{checkpoint_path} is a generator-only snapshot: it has no D '
+                'and no optimiser states, so training cannot resume from it. '
+                'Use it with --generate-only, or resume from '
+                'checkpoint_latest.pth.')
         G.load_state_dict(ckpt['G'])
         g_optim.load_state_dict(ckpt['g_optim'])
         ema.shadow = ckpt.get('ema', ema.shadow)
@@ -1318,6 +1332,14 @@ def train(end_epoch, resume=False, checkpoint_path=None, reset_d=False):
             ckpt_data['best_kid'] = best_kid
             torch.save(ckpt_data, str(CHECKPOINT_DIR / 'checkpoint_best.pth'))
             print(f'  Best checkpoint saved (KID {kid_mean:.5f})')
+        if cfg.snapshot_every and (epoch + 1) % cfg.snapshot_every == 0:
+            # G already holds the EMA weights here, and generate() needs
+            # nothing else. Never overwritten, so this epoch stays
+            # reproducible no matter how far the run is continued.
+            snap = CHECKPOINT_DIR / f'snapshot_ep{epoch + 1:05d}.pth'
+            torch.save({'epoch': epoch, 'G': G.state_dict(),
+                        'kid': kid_mean, 'inference_only': True}, str(snap))
+            print(f'  Snapshot saved ({snap.name})')
         ema.restore(G)
 
     print(f'\nfinished, {(time.time() - t0) / 3600:.2f}h total')
@@ -1582,6 +1604,13 @@ if __name__ == '__main__':
                              'probability specifically; set 0 to disable colour '
                              'augmentation while keeping geometric/photometric ADA')
     parser.add_argument('--kid-start', type=int, default=Config.kid_start)
+    parser.add_argument('--snapshot-every', type=int, default=Config.snapshot_every,
+                        help='Keep a permanent generator-only snapshot every N '
+                             'epochs (0 = off). checkpoint_latest/best are '
+                             'overwritten, so without this a run continued past '
+                             'an epoch destroys the model behind that epoch\'s '
+                             'numbers. Snapshots work with --generate-only but '
+                             'cannot be resumed from')
     parser.add_argument('--sample-weights', default=Config.sample_weights,
                         help='sample_weights.json from metrics/compute_sample_weights.py '
                              '(oversamples rare-colour images; empty = uniform)')
@@ -1615,6 +1644,7 @@ if __name__ == '__main__':
     cfg.sample_weights = args.sample_weights
     cfg.xflip = not args.no_xflip
     cfg.kid_start = args.kid_start
+    cfg.snapshot_every = args.snapshot_every
     cfg.num_workers = args.num_workers
     cfg.seed = args.seed
 
