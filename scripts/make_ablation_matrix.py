@@ -19,6 +19,7 @@ Provenance rules, in order of trust:
 """
 
 import argparse
+import csv
 import json
 from pathlib import Path
 
@@ -193,13 +194,11 @@ def write_inventory(rows, out_dir):
     print(txt)
 
 
-def write_matrix(rows, out_dir):
-    models = sorted({r['model'] for r in rows if not r['void']})
-    strategies = sorted({r['strategy'] for r in rows if not r['void']})
+def build_matrix(rows):
+    """(models worst-to-best, strategies, {(model, strategy): fid})."""
+    live = [r for r in rows if not r['void']]
     cell = {}
-    for r in rows:
-        if r['void']:
-            continue
+    for r in live:
         key = (r['model'], r['strategy'])
         if key in cell:
             # Two evaluations claiming the same cell means one of them is
@@ -207,6 +206,23 @@ def write_matrix(rows, out_dir):
             print(f'  WARNING: {r["dir"]} collides with an earlier report '
                   f'at {key}; the matrix shows only one of them')
         cell[key] = r['fid']
+
+    # Rank models by their best result, worst first: alphabetical order
+    # says nothing, and the progression is the story the table tells.
+    best = {}
+    for (m, _), fid in cell.items():
+        best[m] = min(fid, best.get(m, fid))
+    models = sorted(best, key=lambda m: -best[m])
+    # Columns in the order the levers were added: the plain psi sweep, then
+    # layered truncation, then anything with a post-hoc filter. Alphabetical
+    # order interleaves them and hides that the sweep came first.
+    strategies = sorted({r['strategy'] for r in live},
+                        key=lambda s: ('filter' in s, s.startswith('layered'), s))
+    return models, strategies, cell
+
+
+def write_matrix(rows, out_dir):
+    models, strategies, cell = build_matrix(rows)
 
     w = max(len(m) for m in models) + 1
     head = [' ' * w + ''.join('%8d' % (i + 1) for i in range(len(strategies)))]
@@ -231,6 +247,70 @@ def write_matrix(rows, out_dir):
     print('\n' + txt)
 
 
+def write_csv(rows, out_dir):
+    """Spreadsheet copies: the aligned text tables lose their columns the
+    moment they are pasted into a proportional font (e.g. an email)."""
+    models, strategies, cell = build_matrix(rows)
+
+    with open(out_dir / 'ablation_matrix.csv', 'w', newline='') as f:
+        wr = csv.writer(f)
+        wr.writerow(['model / checkpoint'] + strategies)
+        for m in models:
+            wr.writerow([m] + [('' if (v := cell.get((m, s))) is None
+                                else f'{v:.2f}') for s in strategies])
+
+    with open(out_dir / 'evaluation_inventory.csv', 'w', newline='') as f:
+        wr = csv.writer(f)
+        wr.writerow(['model / checkpoint', 'generation strategy', 'FID',
+                     'precision', 'recall', 'ab_coverage', 'void reason'])
+        for r in sorted(rows, key=lambda r: -r['fid']):
+            wr.writerow([r['model'], r['strategy'], f'{r["fid"]:.3f}',
+                         f'{r["precision"]:.3f}', f'{r["recall"]:.3f}',
+                         f'{r["ab_coverage"]:.4f}', r['void'] or ''])
+    print(f'\n  wrote {out_dir / "ablation_matrix.csv"} '
+          f'and {out_dir / "evaluation_inventory.csv"}')
+
+
+def write_html(rows, out_dir):
+    """A table that survives copy-paste into an email client."""
+    models, strategies, cell = build_matrix(rows)
+    filled = len(cell)
+    total = len(models) * len(strategies)
+
+    td = ('padding:3px 7px;border:1px solid #bbb;text-align:right;'
+          'font-family:Arial,sans-serif;font-size:13px')
+    th = td + ';background:#eee;font-weight:bold'
+    left = td + ';text-align:left'
+
+    h = ['<table style="border-collapse:collapse">', '<tr>',
+         f'<th style="{th};text-align:left">model / checkpoint</th>']
+    h += [f'<th style="{th}">S{i + 1}</th>' for i in range(len(strategies))]
+    h.append('</tr>')
+    for m in models:
+        h.append('<tr>')
+        h.append(f'<td style="{left}">{m}</td>')
+        for s in strategies:
+            v = cell.get((m, s))
+            if v is None:
+                h.append(f'<td style="{td};color:#bbb">.</td>')
+            else:
+                h.append(f'<td style="{td}"><b>{v:.2f}</b></td>')
+        h.append('</tr>')
+    h.append('</table>')
+
+    h.append('<p style="font-family:Arial,sans-serif;font-size:13px">'
+             f'Cell = FID (lower is better). "." = never run. '
+             f'{filled} of {total} cells measured '
+             f'({100 * filled / total:.0f}%).</p>')
+    h.append('<p style="font-family:Arial,sans-serif;font-size:13px">')
+    h += [f'<b>S{i + 1}</b> &nbsp;{s}<br>' for i, s in enumerate(strategies)]
+    h.append('</p>')
+
+    p = out_dir / 'ablation_matrix.html'
+    p.write_text('\n'.join(h) + '\n')
+    print(f'  wrote {p}  (open in a browser, select all, paste into Gmail)')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--results', default='results')
@@ -244,6 +324,8 @@ def main():
         raise SystemExit('No diversity_report.json found.')
     write_inventory(rows, out_dir)
     write_matrix(rows, out_dir)
+    write_csv(rows, out_dir)
+    write_html(rows, out_dir)
 
 
 if __name__ == '__main__':
