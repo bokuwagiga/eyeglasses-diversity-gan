@@ -1121,6 +1121,7 @@ def train(end_epoch, resume=False, checkpoint_path=None, reset_d=False):
         D.train()
         sums = {'g': 0.0, 'd': 0.0, 'perc': 0.0, 'fm': 0.0,
                 'g_total': 0.0, 'dr': 0.0, 'df': 0.0}
+        g_steps_skipped = 0
 
         pbar = tqdm(loader, desc=f'Epoch {epoch + 1}/{end_epoch}', leave=False)
         for real_imgs in pbar:
@@ -1227,8 +1228,16 @@ def train(end_epoch, resume=False, checkpoint_path=None, reset_d=False):
             scaler_g.scale(g_total).backward()
             scaler_g.unscale_(g_optim)
             torch.nn.utils.clip_grad_norm_(G.parameters(), 1.0)
+            # AMP skips the optimiser step when the gradients hold inf/NaN,
+            # and says nothing: losses keep being computed and logged while
+            # G never moves. edgeD trained its final 20 epochs that way -
+            # its EMA weights are bit-identical between ep579 and ep599.
+            # A drop in the scale is how GradScaler reports the skip.
+            scale_before = scaler_g.get_scale()
             scaler_g.step(g_optim)
             scaler_g.update()
+            if scaler_g.get_scale() < scale_before:
+                g_steps_skipped += 1
             ema.update(G)
 
             sums['g'] += g_adv.item()
@@ -1302,6 +1311,14 @@ def train(end_epoch, resume=False, checkpoint_path=None, reset_d=False):
         history['kid'].append(kid_mean)
         history['epoch_sec'].append(epoch_time)
         history['total_hrs'].append(total_hours)
+
+        if g_steps_skipped:
+            pct = 100.0 * g_steps_skipped / n_batches
+            print(f'  WARNING: AMP skipped {g_steps_skipped}/{n_batches} '
+                  f'generator steps ({pct:.0f}%) this epoch'
+                  + ('  -- G DID NOT TRAIN' if g_steps_skipped == n_batches
+                     else ''))
+        history.setdefault('g_steps_skipped', []).append(g_steps_skipped)
 
         kid_str = f'  KID={kid_mean:.5f}' if kid_mean is not None else ''
         print(f'Ep {epoch + 1:4d}/{end_epoch}  '
@@ -1399,9 +1416,18 @@ def generate(checkpoint_path, num_images=10000, truncation_psi=0.7, batch_size=3
                   cfg.g_mirror_axis).to(cfg.device)
     G.load_state_dict(ckpt['G'])
     if 'ema' in ckpt:
+        # A name missing from the EMA dict used to keep its raw-G value
+        # silently, giving a mixed generator that no message mentions.
+        missing = [n for n, _ in G.named_parameters() if n not in ckpt['ema']]
+        if missing:
+            raise SystemExit(
+                f'{checkpoint_path} has an EMA state covering only '
+                f'{len(list(G.named_parameters())) - len(missing)} of '
+                f'{len(list(G.named_parameters()))} generator parameters. '
+                f'First missing: {missing[:3]}. Refusing to generate from a '
+                'half-EMA, half-raw generator.')
         for name, param in G.named_parameters():
-            if name in ckpt['ema']:
-                param.data.copy_(ckpt['ema'][name])
+            param.data.copy_(ckpt['ema'][name])
     G.eval()
 
     print('Computing w_mean ...')
