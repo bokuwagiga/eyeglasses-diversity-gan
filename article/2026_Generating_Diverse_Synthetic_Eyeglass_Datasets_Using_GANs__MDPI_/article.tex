@@ -1,0 +1,423 @@
+%  LaTeX support: latex@mdpi.com 
+%  For support, please attach all files needed for compiling as well as the log file, and specify your operating system, LaTeX version, and LaTeX editor.
+
+%=================================================================
+%\documentclass[journal,article,submit,pdftex,moreauthors]{Definitions/mdpi}
+%\documentclass[preprints,article,submit,pdftex,moreauthors]{Definitions/mdpi}
+\documentclass[electronics,article,submit,pdftex,moreauthors]{Definitions/mdpi}
+% For posting an early version of this manuscript as a preprint, you may use "preprints" as the journal. Changing "submit" to "accept" before posting will remove line numbers.
+
+%=================================================================
+% MDPI internal commands - do not modify
+\firstpage{1} 
+\makeatletter 
+\setcounter{page}{\@firstpage} 
+\makeatother
+\pubvolume{1}
+\issuenum{1}
+\articlenumber{0}
+\pubyear{2026}
+\copyrightyear{2026}
+%\externaleditor{Firstname Lastname} % More than 1 editor, please add `` and '' before the last editor name
+\datereceived{ } 
+\daterevised{ } % Comment out if no revised date
+\dateaccepted{ } 
+\datepublished{ } 
+%\datecorrected{} % For corrected papers: "Corrected: XXX" date in the original paper.
+%\dateretracted{} % For retracted papers: "Retracted: XXX" date in the original paper.
+%\doinum{} % Used for some special journals, like molbank
+%\pdfoutput=1 % Uncommented for upload to arXiv.org
+%\CorrStatement{yes}  % For updates
+%\longauthorlist{yes} % For many authors that exceed the left citation part
+%\IsAssociation{yes} % For association journals
+
+%=================================================================
+% Add packages and commands here. The following packages are loaded in our class file: fontenc, inputenc, calc, indentfirst, fancyhdr, graphicx, epstopdf, lastpage, ifthen, float, amsmath, amssymb, lineno, setspace, enumitem, mathpazo, booktabs, titlesec, etoolbox, tabto, xcolor, colortbl, soul, multirow, microtype, tikz, totcount, changepage, attrib, upgreek, array, tabularx, pbox, ragged2e, tocloft, marginnote, marginfix, enotez, amsthm, natbib, hyperref, cleveref, scrextend, url, geometry, newfloat, caption, draftwatermark, seqsplit
+% cleveref: load \crefname definitions after \begin{document}
+
+\usepackage{rotating}
+
+%\usepackage{adjustbox}
+\usepackage[graphicx]{realboxes}
+%\usepackage{graphicx}
+
+\usepackage{pdflscape}
+\usepackage{afterpage}
+\usepackage{booktabs}
+%\usepackage[table,xcdraw]{xcolor}
+\usepackage{multirow}
+\usepackage{makecell}
+
+\usepackage{bm}
+%\usepackage{subcaption}
+
+\usepackage{overpic}
+
+\usepackage{comment}
+
+%\usepackage{Definitions/trackchanges}
+
+%\newcommand{\cbf}[1]{\color[HTML]{FE0000} \textbf{#1}}
+%\newcommand{\cbf}[1]{\color[HTML]{FE0000} \boldmath{#1}}
+\newcommand{\cbfm}[1]{\color[HTML]{FE0000} \boldmath{$#1$}}
+\newcommand{\bfm}[1]{\boldmath{$#1$}}
+
+\newcommand{\ccd}{\cellcolor[HTML]{A6A6A6}} % dark (best)
+\newcommand{\cc}{\cellcolor[HTML]{D9D9D9}}   % light (second)
+
+\newcommand{\tsup}[1]{\textsuperscript{#1}}
+\newcommand{\tsub}[1]{\textsubscript{#1}}
+
+
+
+\DeclareUnicodeCharacter{2212}{\textminus}
+
+% -------- Revision highlighting --------
+\definecolor{revblue}{RGB}{0,0,210}
+\DeclareRobustCommand{\rev}[1]{{\color{revblue}#1}} % (blue color)
+
+%=================================================================
+% Please use the following mathematics environments: Theorem, Lemma, Corollary, Proposition, Characterization, Property, Problem, Example, ExamplesandDefinitions, Hypothesis, Remark, Definition, Notation, Assumption
+%% For proofs, please use the proof environment (the amsthm package is loaded by the MDPI class).
+
+%=================================================================
+% Full title of the paper (Capitalized)
+\Title{Generating Diverse Synthetic Eyeglass Datasets Using GANs}
+
+
+% Author Orchid ID: enter ID or remove command
+\newcommand{\orcidauthorA}{0009-0003-3496-9928} % G.S.
+\newcommand{\orcidauthorB}{0009-0001-7098-2148} % H.G.
+\newcommand{\orcidauthorC}{0000-0001-6669-4445} % R.P.
+\newcommand{\orcidauthorD}{0000-0002-5137-4585} % D.M.
+
+% Authors, for the paper (add full first names)
+\Author{Giga Shubitidze~*\orcidA{}; Henrikas Giedra~\orcidB{}; Raimondas Pomarnacki~\orcidC{}; and Dalius Matuzevičius~\orcidD{}}
+
+%\longauthorlist{yes}
+
+% MDPI internal command: Authors, for metadata in PDF
+\AuthorNames{Giga Shubitidze, Henrikas Giedra, Raimondas Pomarnacki, Dalius Matuzevičius}
+
+
+% Affiliations / Addresses (Add [1] after \address if there is only one affiliation.)
+\address[1]{%
+Department of Electronic Systems, Vilnius Gediminas Technical University (VILNIUS TECH), 10105~Vilnius,~Lithuania}
+
+% Contact information of the corresponding author
+\corres{Correspondence: author@vilniustech.lt}
+
+% Current address and/or shared authorship
+%\firstnote{Current address: Affiliation.}  
+% Current address should not be the same as any items in the Affiliation section.
+%\secondnote{These authors contributed equally to this work.}
+% The commands \thirdnote{} till \eighthnote{} are available for further notes.
+
+%\simplesumm{} % Simple summary
+
+%\conference{} % An extended version of a conference paper
+
+% Abstract (Do not insert blank lines, i.e. \\)
+%A single paragraph of about 200 words maximum. For research articles, abstracts should give a pertinent overview of the work. We strongly encourage authors to use the following style of structured abstracts, but without headings:
+%(1) Background: place the question addressed in a broad context and highlight the purpose of the study;
+%(2) Methods: describe briefly the main methods or treatments applied;
+%(3) Results: summarize the article's main findings;
+%(4) Conclusions: indicate the main conclusions or interpretations.
+%The abstract should be an objective representation of the article, it must not contain results which are not presented and substantiated in the main text and should not exaggerate the main conclusions.
+
+\abstract{TODO - write last, once the results sections are settled. MDPI asks for a single paragraph of at most about 200 words covering, without headings: (1) background and purpose, (2) methods, (3) main findings, (4) conclusions.}
+
+
+
+% Keywords
+%\keyword{keyword 1; keyword 2; keyword 3 (List three to ten pertinent keywords specific to the article; yet reasonably common within the subject discipline.)}
+\keyword{generative adversarial networks; StyleGAN2; dataset diversity; synthetic data generation; generative model evaluation; quality-diversity trade-off; eyeglass frames; limited data}
+
+
+% The fields PACS, MSC, and JEL may be left empty or commented out if not applicable
+%\PACS{J0101}
+%\MSC{}
+%\JEL{}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Only for the journal Applied Sciences
+%\featuredapplication{Authors are encouraged to provide a concise description of the specific application or a potential application of the work. This section is not mandatory.}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Only for the journal Data
+%\dataset{DOI number or link to the deposited data set if the data set is published separately. If the data set shall be published as a supplement to this paper, this field will be filled by the journal editors. In this case, please submit the data set as a supplement.}
+%\datasetlicense{License under which the data set is made available (CC0, CC-BY, CC-BY-SA, CC-BY-NC, etc.)}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{document}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%\setcounter{section}{-1} %% Remove this when starting to work on the template.
+%\section{How to Use this Template}
+
+%The template details the sections that can be used in a manuscript. Note that the order and names of article sections may differ from the requirements of the journal (e.g., the positioning of the Materials and Methods section). Please check the instructions on the authors' page of the journal to verify the correct order and names. For any questions, please contact the editorial office of the journal or support@mdpi.com. For LaTeX-related questions please contact latex@mdpi.com.%\endnote{This is an endnote.} % To use endnotes, please un-comment \printendnotes below (before References). Only journal Laws uses \footnote.
+
+% The order of the section titles is different for some journals. Please refer to the "Instructions for Authors” on the journal homepage.
+
+\section{Introduction}
+\label{sec:intro}
+
+% Handoff section 1. Synthetic catalogue data for eyeglass frames; why
+% diversity, and not fidelity alone, is the property that makes a generated
+% dataset useful downstream.
+
+\subsection{Motivation}
+
+\subsection{Contributions}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Related Work}
+\label{sec:related}
+
+% StyleGAN2 / StyleGAN2-ADA; GAN evaluation (FID, KID, precision-recall,
+% density-coverage, Vendi, LPIPS); training GANs on limited data;
+% rejection sampling.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Materials and Methods}
+\label{sec:methods}
+
+\subsection{Dataset}
+\label{subsec:data}
+
+% Handoff section 2. 6,511 catalogue frames, 256x512, 2:1, near-uniform
+% background; centre-crop and resize from ~1461 px sources; silhouettes by
+% background-distance thresholding, so no masks are required.
+
+\subsection{Base Model and Stabilisation}
+\label{subsec:base}
+
+% Handoff section 3. The thesis starting point and the three defects fixed
+% before a stable baseline existed: tanh RGB head, collapsed mapping
+% network (w std 0.018 -> 1.04), hinge loss with zero gradient.
+
+\subsection{Training Configuration}
+\label{subsec:training}
+
+% Handoff section 4.
+
+\subsection{Diversity Metric Suite}
+\label{subsec:metrics}
+
+% Handoff section 5 - the core contribution.
+
+\subsubsection{Geometry, Colour, Feature-Space and Perceptual Measures}
+\label{subsubsec:metric_families}
+
+\subsubsection{Pose-Aligned Mirror Symmetry}
+\label{subsubsec:aligned_sym}
+
+% Handoff 5.2a, including the synthetic validation table: a 2 deg tilt
+% costs 0.51 of the fixed-axis score while genuine asymmetry costs 0.07.
+
+\subsubsection{Mirror-Axis Offset Dispersion}
+\label{subsubsec:yaw}
+
+% Handoff 5.2b. Measures differential temple foreshortening (yaw); it is
+% translation-invariant by construction.
+
+\subsubsection{Structural Artifact Suite}
+\label{subsubsec:artifacts}
+
+\subsubsection{Measurement Noise Floor}
+\label{subsubsec:noise}
+
+% Handoff 5.3. FID 0.052, recall 0.019, ab_coverage 0.016. No difference
+% below these is discussed anywhere in the paper.
+
+\subsection{Generation Protocol}
+\label{subsec:generation}
+
+% Handoff section 6. Five levers, twelve protocols; truncation psi below 1
+% is a pure loss; w-blending suppresses diversity; layered truncation.
+
+\subsection{Reproducibility}
+\label{subsec:reproducibility}
+
+% Handoff 11.4. The honest claim is method-level, not bitwise.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Results}
+\label{sec:results}
+
+\subsection{Model Progression}
+\label{subsec:progression}
+
+% Handoff section 7.
+
+\subsection{Quality-Diversity Pareto Front}
+\label{subsec:pareto}
+
+% Handoff 10.1 and 10.2. Two headline models, neither dominating the other.
+% Figure: article/figures/pareto.pdf. Table: results_table.tex.
+
+\subsection{Model and Generation-Strategy Coverage}
+\label{subsec:matrix}
+
+% Handoff 10.3, including the L-shape caveat: the search was greedy, so
+% model x strategy independence cannot be claimed.
+
+\subsection{Checkpoint Selection}
+\label{subsec:checkpoints}
+
+% Handoff 9.2. Promised to the supervisor as a table of 16 models in four
+% groups plus the mirror2 metric-vs-epoch figure.
+
+\subsection{Rejection Filtering as a Pareto Knob}
+\label{subsec:filtering}
+
+% Handoff 10.4.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Preprocessing Mismatch and Measured Quality}
+\label{subsec:resize}
+
+% Handoff 9.1 - the strongest methodological finding. A train/eval resize
+% filter mismatch capped output quality across six architecture
+% experiments and produced three plausible-but-wrong explanations.
+
+\subsection{Silent Failure Modes in Training and Checkpointing}
+\label{subsec:silent}
+
+% Handoff 9.3 and 9.4.
+
+\subsection{Negative Results}
+\label{subsec:negative}
+
+% Handoff section 8.
+
+\subsection{Limitations}
+\label{subsec:limitations}
+
+% Handoff section 11 and the yaw collapse of symmetry priors as a measured
+% property rather than a bug.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Conclusions}
+\label{sec:conclusions}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%\section{Patents}
+%
+%This section is not mandatory, but may be added if there are patents resulting from the work reported in this manuscript.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\vspace{6pt} 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% optional
+%\supplementary{The following supporting information can be downloaded at:  \linksupplementary{s1}, Figure S1: title; Table S1: title; Video S1: title.}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\authorcontributions{TODO - confirm with all authors. Conceptualization, G.S. and D.M.; methodology, G.S. and D.M.; software, G.S.; validation, G.S., H.G., R.P. and D.M.; formal analysis, G.S.; investigation, G.S.; resources, D.M.; data curation, G.S.; writing---original draft preparation, G.S.; writing---review and editing, G.S., H.G., R.P. and D.M.; visualization, G.S.; supervision, D.M.; project administration, D.M. All authors have read and agreed to the published version of the manuscript.}
+
+
+%\funding{Please add: ``This research received no external funding'' or ``This research was funded by NAME OF FUNDER grant number XXX.'' and  and ``The APC was funded by XXX''. Check carefully that the details given are accurate and use the standard spelling of funding agency names at \url{https://search.crossref.org/funding}, any errors may affect your future funding.}
+% TODO confirm this grant still applies to this paper - it was carried
+% over from the template's previous article.
+\funding{This research was supported by the Research Council of Lithuania (LMTLT), agreement No S-ITP-24-12.}
+
+%\institutionalreview{In this section, you should add the Institutional Review Board Statement and approval number, if relevant to your study. You might choose to exclude this statement if the study did not require ethical approval. Please note that the Editorial Office might ask you for further information. Please add “The study was conducted in accordance with the Declaration of Helsinki, and approved by the Institutional Review Board (or Ethics Committee) of NAME OF INSTITUTE (protocol code XXX and date of approval).” for studies involving humans. OR “The animal study protocol was approved by the Institutional Review Board (or Ethics Committee) of NAME OF INSTITUTE (protocol code XXX and date of approval).” for studies involving animals. OR “Ethical review and approval were waived for this study due to REASON (please provide a detailed justification).” OR “Not applicable” for studies not involving humans or animals.}
+\institutionalreview{Not applicable.}
+
+%\informedconsent{Any research article describing a study involving humans should contain this statement. Please add ``Informed consent was obtained from all subjects involved in the study.'' OR ``Patient consent was waived due to REASON (please provide a detailed justification).'' OR ``Not applicable'' for studies not involving humans. You might also choose to exclude this statement if the study did not involve humans.
+\informedconsent{Not applicable.}
+%
+%Written informed consent for publication must be obtained from participating patients who can be identified (including by the patients themselves). Please state ``Written informed consent has been obtained from the patient(s) to publish this paper'' if applicable.}
+
+%\dataavailability{We encourage all authors of articles published in MDPI journals to share their research data. In this section, please provide details regarding where data supporting reported results can be found, including links to publicly archived datasets analyzed or generated during the study. Where no new data were created, or where data is unavailable due to privacy or ethical restrictions, a statement is still required. Suggested Data Availability Statements are available in section ``MDPI Research Data Policies'' at \url{https://www.mdpi.com/ethics}.} 
+%\dataavailability{Image datasets used in this research are described in Section~\ref{ssec:2MM:data_preparation}.}
+%\dataavailability{All data underlying the results are available as part of the article and no additional source data are required.}
+%\dataavailability{The data that support the findings of this study are available from the corresponding author, H.G., upon reasonable request.}
+\dataavailability{The raw data supporting the conclusions of this article will be made available by the corresponding author on request.}
+
+% Proposed during submission: The data presented in this study are openly available in [repository name, e.g., FigShare] at [doi], reference number [reference number].
+%\acknowledgments{In this section you can acknowledge any support given which is not covered by the author contribution or funding sections. This may include administrative and technical support, or donations in kind (e.g., materials used for experiments).}
+
+
+%\conflictsofinterest{Declare conflicts of interest or state ``The authors declare no conflicts of interest.'' Authors must identify and declare any personal circumstances or interest that may be perceived as inappropriately influencing the representation or interpretation of reported research results. Any role of the funders in the design of the study; in the collection, analyses or interpretation of data; in the writing of the manuscript; or in the decision to publish the results must be declared in this section. If there is no role, please state ``The funders had no role in the design of the study; in the collection, analyses, or interpretation of data; in the writing of the manuscript; or in the decision to publish the results''.} 
+\conflictsofinterest{The authors declare no conflicts of~interest.}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\abbreviations{Abbreviations}{
+The following abbreviations are used in this manuscript:\\
+
+\noindent 
+\begin{tabular}{@{}ll}
+ADA & Adaptive discriminator augmentation\\
+CIELAB & CIE $L^*a^*b^*$ colour space\\
+EMA & Exponential moving average\\
+FID & Fr\'echet inception distance\\
+GAN & Generative adversarial network\\
+KID & Kernel inception distance\\
+LPIPS & Learned perceptual image patch similarity\\
+PPL & Perceptual path length\\
+PRDC & Precision, recall, density and coverage\\
+RGB & Red, green, blue\\
+VRAM & Video random-access memory\\
+\end{tabular}
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\appendixtitles{no}
+%\appendixstart
+%\appendix
+%\section{Appendix Title}
+%\label{app:example}
+
+%\finishlandscape
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{adjustwidth}{-\extralength}{0cm}
+%\printendnotes[custom] % Un-comment to print a list of endnotes
+
+\reftitle{References}
+
+% Please provide either the correct journal abbreviation (e.g. according to the “List of Title Word Abbreviations” http://www.issn.org/services/online-services/access-to-the-ltwa/) or the full name of the journal.
+% Citations and References in Supplementary files are permitted provided that they also appear in the reference list here. 
+
+%=====================================
+% References, variant A: external bibliography
+%=====================================
+\bibliography{refs}
+
+%=====================================
+% References, variant B: internal bibliography
+%=====================================
+% egin{thebibliography}{999}
+% ibitem[Author(Year)]{key} ...
+% \end{thebibliography}
+
+
+
+
+% If authors have biography, please use the format below
+%\section*{Short Biography of Authors}
+%\bio
+%{\raisebox{-0.35cm}{\includegraphics[width=3.5cm,height=5.3cm,clip,keepaspectratio]{Definitions/author1.pdf}}}
+%{\textbf{Firstname Lastname} Biography of first author}
+%
+%\bio
+%{\raisebox{-0.35cm}{\includegraphics[width=3.5cm,height=5.3cm,clip,keepaspectratio]{Definitions/author2.jpg}}}
+%{\textbf{Firstname Lastname} Biography of second author}
+
+% For the MDPI journals use author-date citation, please follow the formatting guidelines on http://www.mdpi.com/authors/references
+% To cite two works by the same author: \citeauthor{ref-journal-1a} (\citeyear{ref-journal-1a}, \citeyear{ref-journal-1b}). This produces: Whittaker (1967, 1975)
+% To cite two works by the same author with specific pages: \citeauthor{ref-journal-3a} (\citeyear{ref-journal-3a}, p. 328; \citeyear{ref-journal-3b}, p.475). This produces: Wong (1999, p. 328; 2000, p. 475)
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\PublishersNote{}
+\end{adjustwidth}
+\end{document}

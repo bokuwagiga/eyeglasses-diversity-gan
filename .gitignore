@@ -8,3 +8,4 @@ results/
 *.pth
 *.ckpt
 .ipynb_checkpoints/
+article/*.zip
