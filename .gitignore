@@ -9,3 +9,21 @@ results/
 *.ckpt
 .ipynb_checkpoints/
 article/*.zip
+
+# Generated Overleaf export - rebuild with article/make_overleaf_bundle.py
+article/overleaf/
+
+# LaTeX build artefacts
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.out
+*.synctex.gz
+*.toc
+article/**/*.log
+article/**/_compiletest.*
+article/**/article.pdf
