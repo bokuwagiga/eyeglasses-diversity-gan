@@ -125,7 +125,7 @@ Department of Electronic Systems, Vilnius Gediminas Technical University (VILNIU
 %(4) Conclusions: indicate the main conclusions or interpretations.
 %The abstract should be an objective representation of the article, it must not contain results which are not presented and substantiated in the main text and should not exaggerate the main conclusions.
 
-\abstract{TODO - write last, once the results sections are settled. MDPI asks for a single paragraph of at most about 200 words covering, without headings: (1) background and purpose, (2) methods, (3) main findings, (4) conclusions.}
+\abstract{[Abstract to be written once the results sections are final.]}
 
 
 
@@ -164,9 +164,8 @@ Department of Electronic Systems, Vilnius Gediminas Technical University (VILNIU
 \section{Introduction}
 \label{sec:intro}
 
-% Handoff section 1. Synthetic catalogue data for eyeglass frames; why
-% diversity, and not fidelity alone, is the property that makes a generated
-% dataset useful downstream.
+% Synthetic catalogue data for eyeglass frames, and why diversity rather
+% than fidelity alone is what makes a generated dataset useful downstream.
 
 \subsection{Motivation}
 
@@ -187,93 +186,301 @@ Department of Electronic Systems, Vilnius Gediminas Technical University (VILNIU
 \subsection{Dataset}
 \label{subsec:data}
 
-% Handoff section 2. 6,511 catalogue frames, 256x512, 2:1, near-uniform
-% background; centre-crop and resize from ~1461 px sources; silhouettes by
-% background-distance thresholding, so no masks are required.
+The training corpus consists of 6,511 frontal catalogue photographs of
+eyeglass frames, the same collection used in our earlier work on joint
+image--mask synthesis~\cite{shubitidze2026masks}. Each source image is square,
+between roughly 1350 and 1650 pixels on a side with a median of 1463, and
+shows a single unworn frame, roughly centred, against a near-uniform light
+background. Images are centre-cropped
+to a 2:1 aspect ratio and resized to $256 \times 512$ pixels (height $\times$
+width), which follows the natural proportions of a frame viewed from the
+front and avoids the padding a square canvas would demand.
+
+Two properties of this corpus shape everything that follows. The first is the
+background. Because it is close to uniform, a frame silhouette can be
+recovered by thresholding on distance from the background colour, with no
+learned segmentation and without asking the generator to emit a mask. Every
+geometric and symmetry measure in Section~\ref{sec:metrics} is built on
+silhouettes obtained this way, which is what makes a geometry-aware diversity
+study possible in a setting where mask generation is deliberately out of
+scope. The second property is size. At 6,511 images the corpus is small for
+adversarial training at this resolution, and in practice the majority of the
+failures reported below trace back to the discriminator memorising it rather
+than to any limitation of the generator.
+
+Two dataset-level interventions are used throughout. Horizontal flips are
+applied to the dataset rather than as a stochastic augmentation, doubling the
+effective corpus to roughly 13,000 images. Sampling is additionally weighted
+by inverse frequency over a $16 \times 16$ histogram of each frame's mean
+CIELAB $a^*b^*$ chromaticity, with exponent 0.5 and a weight cap of 4. The
+diagnosis that motivated this weighting, and the dose--response behaviour it
+produces, are treated in Section~\ref{subsec:ablations}; it is introduced here
+because every model from that point onward was trained under it.
 
 \subsection{Base Model and Stabilisation}
 \label{subsec:base}
 
-% Handoff section 3. The thesis starting point and the three defects fixed
-% before a stable baseline existed: tanh RGB head, collapsed mapping
-% network (w std 0.018 -> 1.04), hinge loss with zero gradient.
+The starting point is the conditional StyleGAN2 variant of our previous
+work~\cite{shubitidze2026masks}, which generated an RGB image and a binary
+frame mask from a single forward pass and reached an FID of 6.13. A later
+revision of that model added an eight-layer mapping network, adaptive
+discriminator augmentation~\cite{karras2020ada}, path-length regularisation, a
+feature-matching term and KID-based checkpoint selection. It produced visibly
+sharper samples and the best domain metrics of that work, but its
+distributional and diversity behaviour was worse rather than better: FID rose
+to 38.47, and the colour-diversity score fell to 0.0567 against 0.0995 for the
+earlier run.
+
+That comparison also indicates why this paper does not simply reuse the
+earlier diversity metrics. The colour-diversity measure of the previous work
+is a mean pairwise distance computed over generated images alone, and on the
+real corpus it evaluates to 0.0338. Both generators therefore scored well
+above the real data on a measure intended to certify their realism, which a
+statistic of that construction permits: it rewards spread without reference to
+where the real distribution lies. A quantity that can be improved without
+limit by drifting away from the target does not measure how well the target is
+covered, and Section~\ref{sec:metrics} replaces it.
+
+Removing the mask branch, as the present scope requires, destabilised training
+badly, and three defects had to be corrected before a stable unconditional
+baseline existed. The first was the output head. The generator projected to
+RGB through a $\tanh$ nonlinearity, inherited from the mask-supervised model.
+Approximately 86 per cent of the pixels in a cropped and resized catalogue
+image are near-white background, so every loss term drives the large majority
+of pixels toward $+1$, where $\tanh$ has vanishing gradient. The official StyleGAN2 generator uses a linear RGB
+head~\cite{karras2020stylegan2}, and adopting it removed the saturation.
+
+The second defect was in the mapping network, and it is the one with a
+plausible bearing on the low colour diversity of the predecessor run. Eight
+stacked default linear layers with LeakyReLU activations contract the signal
+at every step, because standard initialisation scales weights by the inverse
+square root of the fan-in without the equalized-learning-rate correction.
+Measured at initialisation on a batch of 4096 standard-normal latents, the
+resulting style codes have a standard deviation of 0.0184 against 1.0000 for
+the latents themselves, and the contraction is front-loaded: the per-layer
+standard deviation falls from 0.583 after the first linear layer to 0.052
+after the fourth before levelling off near 0.028. A style code of that
+dispersion carries almost no per-image information, which leaves per-pixel
+noise injection as the dominant source of variation between samples. Replacing
+the stack with equalized-learning-rate linear layers at a multiplier of 0.01,
+as in the official mapping network~\cite{karras2020stylegan2}, raises the
+style-code standard deviation to 1.0968 under the identical measurement.
+
+The third defect was the adversarial loss. The hinge
+formulation~\cite{lim2017geometric} produces no gradient once real and fake
+scores separate beyond its margins. Under mask supervision the discriminator
+had never built margins wide enough for this to matter; without it, the two
+distributions separate within a few epochs, the discriminator loss reaches
+exactly zero, and training stalls. Substituting the non-saturating logistic
+loss standard in StyleGAN2-ADA~\cite{karras2020stylegan2,karras2020ada}
+removed the stall.
 
 \subsection{Training Configuration}
 \label{subsec:training}
 
-% Handoff section 4.
+All models reported here are StyleGAN2-ADA derivatives implemented in stock
+PyTorch~\cite{paszke2019pytorch}, with no compiled custom operators. The
+generator maps a 512-dimensional latent through the eight-layer
+equalized-learning-rate mapping network described above to a 512-dimensional
+style code, and synthesises through six weight-demodulated stages from $8
+\times 16$ to $256 \times 512$ with skip-RGB connections and a linear output
+head. A self-attention module~\cite{zhang2019self} is placed at $32 \times 64$
+to give the network access to long-range structure, which for frontal frames
+is chiefly bilateral correspondence. Channel widths follow $512 \rightarrow
+256 \rightarrow 256 \rightarrow 128 \rightarrow 64 \rightarrow 32 \rightarrow
+16$, giving 8.50~M generator parameters; the discriminator uses $16
+\rightarrow 32 \rightarrow 64 \rightarrow 128 \rightarrow 256 \rightarrow 256$
+for 2.50~M parameters. Both width multipliers were varied, and the outcome is
+reported in Section~\ref{subsec:negative}.
 
-\subsection{Diversity Metric Suite}
-\label{subsec:metrics}
-
-% Handoff section 5 - the core contribution.
-
-\subsubsection{Geometry, Colour, Feature-Space and Perceptual Measures}
-\label{subsubsec:metric_families}
-
-\subsubsection{Pose-Aligned Mirror Symmetry}
-\label{subsubsec:aligned_sym}
-
-% Handoff 5.2a, including the synthetic validation table: a 2 deg tilt
-% costs 0.51 of the fixed-axis score while genuine asymmetry costs 0.07.
-
-\subsubsection{Mirror-Axis Offset Dispersion}
-\label{subsubsec:yaw}
-
-% Handoff 5.2b. Measures differential temple foreshortening (yaw); it is
-% translation-invariant by construction.
-
-\subsubsection{Structural Artifact Suite}
-\label{subsubsec:artifacts}
-
-\subsubsection{Measurement Noise Floor}
-\label{subsubsec:noise}
-
-% Handoff 5.3. FID 0.052, recall 0.019, ab_coverage 0.016. No difference
-% below these is discussed anywhere in the paper.
+Training uses the non-saturating logistic loss with a lazy $R_1$ gradient
+penalty~\cite{mescheder2018converge} at $\gamma = 5$ applied every 16 steps,
+path-length regularisation at weight 4.0 on the same interval with a reduced
+batch of 16 to fit memory, a feature-matching term at weight 2.0 with random
+real--fake pairing, and a VGG perceptual term~\cite{simonyan2015vgg} at weight
+0.75 with nearest-real pairing. The discriminator applies a group-wise
+minibatch standard deviation layer~\cite{karras2018progressive} over groups of
+four and blurs feature maps before average pooling. Adaptive discriminator
+augmentation uses horizontal flips, integer-pixel translation, brightness
+jitter, additive noise and cutout, with the probability ceiling at 0.95; hue
+and saturation augmentation is disabled, for reasons established in
+Section~\ref{subsec:negative}. Both networks use
+Adam~\cite{kingma2015adam} with $\beta_1 = 0$ and $\beta_2 = 0.99$ at learning
+rates of $2 \times 10^{-4}$ for the generator and $5 \times 10^{-5}$ for the
+discriminator, style mixing is applied with probability 0.9, and an
+exponential moving average of the generator weights with decay 0.999 is used
+for all sampling and evaluation. The batch size is 16. On a single RTX~4090
+with 24~GB of memory an epoch takes approximately 180 to 190 seconds.
 
 \subsection{Generation Protocol}
 \label{subsec:generation}
 
-% Handoff section 6. Five levers, twelve protocols; truncation psi below 1
-% is a pure loss; w-blending suppresses diversity; layered truncation.
+Sampling is a design space in its own right, independent of training, and it
+was swept separately. Five levers were considered: the truncation coefficient
+$\psi$; layered truncation, in which coarse and fine synthesis stages receive
+different coefficients; whether each image is synthesised from a single latent
+or from a blend of several style codes; multi-modal truncation about $k$
+cluster centres rather than the global style mean; and post-hoc rejection
+sampling against either a manifold-precision criterion or the structural
+artifact suite of Section~\ref{subsec:artifacts}. Nine protocols built from
+these levers were evaluated on a common checkpoint
+(Table~\ref{tab:protocols}), each generating 10,000 images at a fixed seed.
+
+\begin{table}[H]
+\caption{Generation protocols evaluated on a common checkpoint. Yield is the
+fraction of the 10,000 generated images surviving rejection sampling.
+Truncation is applied toward the style mean; ``pure'' denotes a single latent
+per image and ``mixed'' the blended default; ``layered'' applies $\psi = 1.0$
+to the three coarse stages and $\psi = 1.2$ to the three fine stages.}
+\label{tab:protocols}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Protocol} & \textbf{FID} $\downarrow$ & \textbf{Prec.} &
+\textbf{Recall} & \textbf{$a^*b^*$ cov.} & \textbf{Vendi} & \textbf{Yield} \\
+\midrule
+$\psi = 0.85$, mixed                 & 13.09 & 0.963 & 0.103 & 0.219 & 2.29 & 100\% \\
+$\psi = 1.0$, mixed                  & 11.25 & 0.924 & 0.154 & 0.270 & 2.52 & 100\% \\
+$\psi = 1.2$, mixed                  & 10.46 & 0.844 & 0.235 & 0.352 & 2.83 & 100\% \\
+$\psi = 1.0$, pure                   & 10.41 & 0.890 & 0.189 & 0.313 & 2.70 & 100\% \\
+$\psi = 1.2$, pure                   & 10.76 & 0.765 & 0.324 & 0.395 & 3.05 & 100\% \\
+$\psi = 1.2$, pure, precision filter & 10.35 & 0.923 & 0.250 & 0.355 & 2.85 & 69.7\% \\
+Layered $1.0/1.2$, pure              & 10.20 & 0.879 & 0.212 & 0.367 & 2.74 & 100\% \\
+Layered, precision filter            & 10.51 & 0.957 & 0.169 & 0.344 & 2.65 & 82.9\% \\
+Layered, $k = 8$ centres             & 10.22 & 0.879 & 0.203 & 0.352 & 2.73 & 100\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Three findings follow from this sweep, and one of them runs against common
+practice. Truncation below $\psi = 1$ is not a trade-off in this domain but a
+straightforward loss: moving from 0.85 to 1.0 to 1.2 improves FID and every
+diversity measure at once, so the low-$\psi$ settings conventionally used to
+buy image quality~\cite{brock2019biggan} do not lie on the front at all.
+Synthesising each image from a single latent outperforms blending several
+style codes at matched $\psi$ on nearly every axis, which is unsurprising once
+stated, since averaging style codes moves each sample toward the population
+mean, but the blended scheme was the default inherited from our previous work.
+Layered truncation gives the best compromise: capping only the three coarse
+stages, which carry silhouette and proportion, while leaving untruncated the
+three fine stages that carry colour and texture yields the lowest FID at full
+yield, and it beats the filtered $\psi = 1.2$ set on colour coverage precisely
+because the stages responsible for colour are never contracted.
+
+Two levers did not repay their cost. Multi-modal truncation about eight
+centres differs from the single-centre layered protocol by 0.02 in FID, which
+is inside the measurement noise established in Section~\ref{subsec:noise}; at
+$\psi \geq 1$ the contraction is evidently too weak for the choice of centre
+to matter. Rejection sampling, useful earlier, became unnecessary once layered
+truncation had removed the manifold-outlier tail, and stacking it on top moves
+along a trade-off curve rather than lifting it; it is examined on its own
+terms in Section~\ref{subsec:filtering}.
+
+The layered protocol was frozen as the headline configuration and used for
+every model comparison in this paper: $\psi = 1.0$ for the coarse stages and
+$\psi = 1.2$ for the fine stages with the split after the third stage, a
+single latent per image, 10,000 images, generation seed 42. One caveat must be
+stated plainly. The protocol was selected on a checkpoint whose FID was 10.2,
+whereas the final models reach 3.6 to 4.1; it has not been re-validated at
+that operating point, and the model by protocol coverage discussed in
+Section~\ref{subsec:matrix} is too sparse to establish that the ranking
+transfers. Holding the protocol fixed makes the model comparison internally
+consistent, which is what that comparison requires, but it does not
+demonstrate that this protocol is optimal for the final models.
 
 \subsection{Reproducibility}
 \label{subsec:reproducibility}
 
-% Handoff 11.4. The honest claim is method-level, not bitwise.
+Bitwise reproduction of these runs is not achievable and is not claimed.
+Neither cuDNN autotuning nor non-deterministic reduction kernels are pinned,
+and because each resume re-seeds the random number generator from the
+configured seed rather than restoring generator state, the batch ordering
+after an interruption is not what an uninterrupted run would have produced.
+The claim we make is at the level of method: a fixed seed, a pinned commit,
+and a published configuration and dataset. Run-to-run variation under a
+different training seed was never measured. Quantifying it would require
+repeating a full run at roughly 63 GPU-hours, and we record it as a limitation
+rather than estimate it.
+
+Provenance is recorded automatically. From the point at which run stamping was
+introduced, every configuration snapshot, diversity report and artifact report
+carries the git commit, a flag indicating an unclean working tree, and the
+PyTorch, CUDA and GPU version strings, and every launch appends its full
+argument list to a per-run history file. Runs predating that change have
+reconstructed provenance only. The longest run illustrates why this matters:
+what is reported here as a single 1,600-epoch training was in fact executed as
+six consecutive segments, and its structure had to be recovered after the fact
+from resets in the cumulative training-hours series, giving segments of 300,
+200, 300, 357, 43 and 400 epochs for a total of 83.9 hours. Epochs are
+reported throughout as the number of training epochs completed; checkpoint
+files store a zero-based index one lower, so the checkpoint behind epoch 1600
+records 1599.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{A Diversity Metric Suite for Eyeglass Frames}
+\label{sec:metrics}
+
+% Core contribution. Kept as a top-level section rather than folded into
+% Methods, since the two new metrics are the point of the paper.
+
+\subsection{Geometry, Colour, Feature-Space and Perceptual Measures}
+\label{subsec:metric_families}
+
+\subsection{Pose-Aligned Mirror Symmetry}
+\label{subsec:aligned_sym}
+
+% Include the synthetic validation table: a 2 deg tilt costs 0.51 of the
+% fixed-axis score while genuine shape asymmetry costs only 0.07.
+
+\subsection{Mirror-Axis Offset Dispersion}
+\label{subsec:yaw}
+
+% Measures differential temple foreshortening (yaw). Translation-invariant
+% by construction - state this explicitly, it is easy to misread.
+
+\subsection{Structural Artifact Suite}
+\label{subsec:artifacts}
+
+\subsection{Measurement Noise Floor}
+\label{subsec:noise}
+
+% Per-metric maximum across the two generation-seed pairs: FID 0.052,
+% recall 0.019, ab_coverage 0.016, precision 0.008, coverage 0.003.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Results}
 \label{sec:results}
 
-\subsection{Model Progression}
-\label{subsec:progression}
+\subsection{Training Ablations}
+\label{subsec:ablations}
 
-% Handoff section 7.
+% Organised by mechanism, not chronologically: R1 gamma, colour rebalancing
+% dose-response, discriminator blurpool, mirror coupling.
 
 \subsection{Quality-Diversity Pareto Front}
 \label{subsec:pareto}
 
-% Handoff 10.1 and 10.2. Two headline models, neither dominating the other.
-% Figure: article/figures/pareto.pdf. Table: results_table.tex.
+% Two headline models, neither dominating the other - that is the finding.
+% Figure: images/pareto.pdf. Table: results_table.tex.
 
 \subsection{Model and Generation-Strategy Coverage}
 \label{subsec:matrix}
 
-% Handoff 10.3, including the L-shape caveat: the search was greedy, so
-% model x strategy independence cannot be claimed.
-
-\subsection{Checkpoint Selection}
-\label{subsec:checkpoints}
-
-% Handoff 9.2. Promised to the supervisor as a table of 16 models in four
-% groups plus the mirror2 metric-vs-epoch figure.
+% Cut from the paper. The coverage is too sparse and too non-factorial to
+% support a model x strategy claim; the caveat is stated in Section 3.4.
 
 \subsection{Rejection Filtering as a Pareto Knob}
 \label{subsec:filtering}
 
-% Handoff 10.4.
+% Filtering traces a front between structural cleanliness and colour
+% coverage, since defects concentrate in the rare-colour tail.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Checkpoint Selection Under a Diversity Objective}
+\label{sec:checkpoints}
+
+% Self-contained study: does the minimum-KID checkpoint give the best
+% dataset? Four groups over 16 usable runs (5/4/2/5), plus the epoch curve.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Discussion}
@@ -282,25 +489,33 @@ Department of Electronic Systems, Vilnius Gediminas Technical University (VILNIU
 \subsection{Preprocessing Mismatch and Measured Quality}
 \label{subsec:resize}
 
-% Handoff 9.1 - the strongest methodological finding. A train/eval resize
-% filter mismatch capped output quality across six architecture
-% experiments and produced three plausible-but-wrong explanations.
+% The strongest methodological finding: a train/eval resize filter mismatch
+% capped measured output quality across six architecture experiments and
+% produced three plausible but wrong explanations before it was located.
 
 \subsection{Silent Failure Modes in Training and Checkpointing}
 \label{subsec:silent}
 
-% Handoff 9.3 and 9.4.
+% Silent AMP generator-step skipping; partial EMA load; and a checkpoint
+% invalidated by a code change with no key or shape mismatch.
 
 \subsection{Negative Results}
 \label{subsec:negative}
 
-% Handoff section 8.
+% Falsified hypotheses: weaker D, colour ADA, D input channel, G capacity,
+% and the yaw reading behind the second mirror variant.
+
+\subsection{Method Lessons}
+\label{subsec:lessons}
+
+% What we would do differently: validate a new metric on controlled input
+% before building on it; change one thing at a time; diff every launch.
 
 \subsection{Limitations}
 \label{subsec:limitations}
 
-% Handoff section 11 and the yaw collapse of symmetry priors as a measured
-% property rather than a bug.
+% Reproducibility limits, and yaw collapse under a symmetry prior as a
+% measured property of the prior rather than a defect of one model.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Conclusions}
@@ -320,12 +535,11 @@ Department of Electronic Systems, Vilnius Gediminas Technical University (VILNIU
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\authorcontributions{TODO - confirm with all authors. Conceptualization, G.S. and D.M.; methodology, G.S. and D.M.; software, G.S.; validation, G.S., H.G., R.P. and D.M.; formal analysis, G.S.; investigation, G.S.; resources, D.M.; data curation, G.S.; writing---original draft preparation, G.S.; writing---review and editing, G.S., H.G., R.P. and D.M.; visualization, G.S.; supervision, D.M.; project administration, D.M. All authors have read and agreed to the published version of the manuscript.}
+\authorcontributions{Conceptualization, G.S. and D.M.; methodology, G.S. and D.M.; software, G.S.; validation, G.S., H.G., R.P. and D.M.; formal analysis, G.S.; investigation, G.S.; resources, D.M.; data curation, G.S.; writing---original draft preparation, G.S.; writing---review and editing, G.S., H.G., R.P. and D.M.; visualization, G.S.; supervision, D.M.; project administration, D.M. All authors have read and agreed to the published version of the manuscript.}
 
 
 %\funding{Please add: ``This research received no external funding'' or ``This research was funded by NAME OF FUNDER grant number XXX.'' and  and ``The APC was funded by XXX''. Check carefully that the details given are accurate and use the standard spelling of funding agency names at \url{https://search.crossref.org/funding}, any errors may affect your future funding.}
-% TODO confirm this grant still applies to this paper - it was carried
-% over from the template's previous article.
+% Grant carried over from the previous article - confirm it still applies.
 \funding{This research was supported by the Research Council of Lithuania (LMTLT), agreement No S-ITP-24-12.}
 
 %\institutionalreview{In this section, you should add the Institutional Review Board Statement and approval number, if relevant to your study. You might choose to exclude this statement if the study did not require ethical approval. Please note that the Editorial Office might ask you for further information. Please add “The study was conducted in accordance with the Declaration of Helsinki, and approved by the Institutional Review Board (or Ethics Committee) of NAME OF INSTITUTE (protocol code XXX and date of approval).” for studies involving humans. OR “The animal study protocol was approved by the Institutional Review Board (or Ethics Committee) of NAME OF INSTITUTE (protocol code XXX and date of approval).” for studies involving animals. OR “Ethical review and approval were waived for this study due to REASON (please provide a detailed justification).” OR “Not applicable” for studies not involving humans or animals.}
