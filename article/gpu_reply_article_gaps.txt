@@ -1,0 +1,395 @@
+======================================================================
+ANSWERS - items A to F, for the MDPI Electronics article
+Prepared 2026-08-27 on the training machine.
+Repo commit: 74f9b607fc1daaebb6b65cb39c4bcdd5195db3c8
+  ("Record the confirmed causes behind the two failed sweep rows")
+  git pull --ff-only -> Already up to date; local == origin/main,
+  0 ahead / 0 behind.
+All values below are quoted exactly as the files give them.
+======================================================================
+
+CONTENTS OF THIS FOLDER
+  ANSWERS.txt        this file
+  SHA256SUMS.txt     sha256 + byte size for every file here
+  results/...        mirrors the repo layout, so the whole results/
+                     subtree can be merged straight over your own
+
+  results/checkpoint_comparison.csv                     (item D)
+  results/baseline/metrics/training_metrics.json        (item C)
+  results/mirror2/checkpoints/snapshot_ep01400.pth      (item E)
+  results/mirror2/checkpoints/snapshot_ep01450.pth      (item E)
+  results/mirror2/checkpoints/snapshot_ep01500.pth      (item E)
+  results/mirror1/eval_pose/diversity_report.txt        (item A)
+  results/mirror1/eval_pose/diversity_report.json       (item A)
+
+Every copy in this folder was sha256-verified against its original
+after copying. Verify again after you move the folder - your previous
+transfer silently truncated two snapshots (2,450 and 1,334 bytes), so
+a size check alone is not enough:
+    Get-FileHash <file> -Algorithm SHA256
+
+
+======================================================================
+A. mirror1 pose metrics at n=5000
+======================================================================
+
+results/mirror1/generated/images existed and held exactly 10000 files,
+so the SAFE PATH applied: no regeneration, no architecture flags, no
+diff needed. metrics/evaluate_diversity.py was run over those images
+against data/source/images with the current suite at default seed 0,
+written to a NEW directory results/mirror1/eval_pose/.
+results/mirror1/eval/ was not touched.
+
+The baseline mismatch you were worried about is resolved. This run's
+real axis offset std is 2.8850088388079507 - the n=5000 baseline
+(2.885), NOT the n=1500 probe's 2.974. aligned_p50_real is
+0.6055228069619651, byte-identical to the real baseline in mirror2's
+report, so the rows are mutually consistent.
+
+SECTION F, unrounded, from diversity_report.json:
+
+  n_gen 5000   n_real 5000
+
+  axis offset std (px)
+      gen   1.2777036276069658
+      real  2.8850088388079507
+      ratio 0.4428768502958545
+  axis offset IQR (px)
+      gen   1.0
+      real  3.0
+  frac |offset| >= 3 px
+      gen   0.0532
+      real  0.4186
+
+  mirror IoU p50        generated             real                  gap
+    fixed bbox axis     0.6007994297353703    0.5253659971468025    +0.0754334325885678
+    pose-aligned axis   0.6212497241963295    0.6055228069619651    +0.0157269172343644
+
+OTHER EXACT VALUES from the same JSON:
+  fid          4.478950500488281
+  kid_mean     0.0013637231895700097
+  kid_std      0.00011878288933075964
+  precision    0.848
+  recall       0.667
+  density      0.9202
+  coverage     0.9205
+  k            5
+  hue_entropy  0.8561661608900059
+  ab_coverage  0.5234375
+  pairwise_lab 24.925308227539062
+  meta.code    git_commit 74f9b607fc1daaebb6b65cb39c4bcdd5195db3c8
+               git_dirty  True
+  meta         n_generated 5000, n_real 5000, seed 0,
+               n_generated_total 10000, n_real_total 6511
+
+The full diversity_report.txt is included in this folder at
+results/mirror1/eval_pose/diversity_report.txt.
+
+CAVEAT, do not assume past this: I did NOT verify which checkpoint and
+which generation protocol produced results/mirror1/generated/images.
+Its FID (4.478950500488281) matches the sweep's mirror1 ckpt_best to
+three decimals, which suggests best-checkpoint at the headline
+protocol, but its generation_config.json was not opened. Confirm
+before this number goes in the table.
+
+NOTE on git_dirty True: five scripts/*.py files are untracked and two
+article/figures/ files show as deleted in the working tree. Worth
+cleaning before the final artefact run so the provenance stamp reads
+clean.
+
+
+======================================================================
+B. edgeD frozen-generator forensics
+======================================================================
+
+BOTH CHECKPOINTS SURVIVE on this machine.
+  results/edgeD/checkpoints/checkpoint_best.pth    166,284,287 bytes
+  results/edgeD/checkpoints/checkpoint_latest.pth  166,287,547 bytes
+  best   epoch=579  best_kid=0.002574977930635214
+  latest epoch=599  best_kid=0.002574977930635214
+
+Exact torch.equal test, denominators as actually found:
+
+  ema : 102 tensors in best, 102 in latest, 102 shared,
+        0 only-in-best, 0 only-in-latest
+        DIFFER: 0 of 102
+
+  G   : 108 tensors in best, 108 in latest, 108 shared,
+        0 only-in-best, 0 only-in-latest
+        DIFFER: 2 of 108
+          attention.query.weight_u   max_abs_diff=0.00014403462409973145
+          attention.query.weight_v   max_abs_diff=0.00014406442642211914
+
+  D   : 51 tensors in best, 51 in latest, 51 shared,
+        0 only-in-best, 0 only-in-latest
+        DIFFER: 49 of 51
+        identical: 2 of 51 -> ['sobel_x', 'sobel_y']
+
+All three expected counts confirmed exactly: 0/102, 2/108, 49/51.
+
+The two G tensors that differ are the spectral-norm power-iteration
+buffers, which drift on any forward pass without an optimiser step -
+they are not learned weights. Supporting detail worth having: the only
+two D tensors that do NOT change are sobel_x and sobel_y, fixed
+edge-detection kernels. They are constants, so their invariance
+corroborates the reading rather than weakening it.
+
+Mechanism (leading hypothesis, NOT proven): torch.amp GradScaler
+silently skips the optimiser step when gradients hold inf/NaN, so
+losses keep being computed and logged while G never moves. The scaler
+state is not checkpointed, so this cannot be verified retroactively.
+A guard that counts skipped steps per epoch and prints
+"G DID NOT TRAIN" now exists in gan/gan_train.py (commit d085510).
+
+
+======================================================================
+C. baseline/metrics/training_metrics.json
+======================================================================
+
+PRESENT here, and longer than your copy (yours stopped at epoch 109
+with one KID point).
+
+  path   : results/baseline/metrics/training_metrics.json
+  bytes  : 37648
+  sha256 : 39531eac3be038c69a617c767a545600efafdc1580eb542c7cff4ce7e4d67a5e
+  mtime  : 2026-07-03 23:21:49
+  epochs : 145 entries, epoch 1 .. 145
+  keys   : ada_p, d_fake, d_loss, d_real, epoch, epoch_sec, fm_loss,
+           g_loss, g_total, kid, perc_loss, total_hrs
+
+FOUR KID points measured, not one:
+
+  epoch 100   0.012444829568266869
+  epoch 115   0.011428117752075195
+  epoch 130   0.011605744250118732
+  epoch 145   0.011997048743069172
+
+  BEST training KID = 0.011428117752075195 at epoch 115
+
+EPOCH NUMBERING - resolve before publishing this cell:
+training_metrics.json numbers epochs 1-BASED; the checkpoint 'epoch'
+field is a 0-BASED index. Metrics-epoch 115 is checkpoint-epoch 114,
+so checkpoint_comparison.csv reporting best_epoch=114 with
+best_kid=0.0114281 refers to the same moment. State one convention in
+the paper or the two artefacts will look contradictory. The same
+applies to the snapshots in item E (file named ep01400 carries
+epoch=1399).
+
+The file itself is included in this folder.
+
+
+======================================================================
+D. checkpoint_comparison.csv
+======================================================================
+
+  path   : results/checkpoint_comparison.csv
+  bytes  : 6297
+  sha256 : 45f1ca170ab12284b657eb7bbd73a385f035c5d017e5446a6b1b431309386206
+  mtime  : 2026-08-27 17:09:53
+  rows   : 20 data rows
+
+Your local copy is stale. This one is corrected. Both requested
+confirmations:
+
+sg2f - RECORDED AS FAILED, NOT DELETED, NOTHING QUOTABLE LEFT
+  fidelity_winner = 'FAILED'
+  diversity_winner = 'FAILED'
+  every metric cell BLANK (verified programmatically: zero non-blank
+    metric cells across all 16 metric columns)
+  retained: best_epoch=669, last_epoch=799,
+            best_kid=0.0159159, last_kid=0.0200162
+  FID 206.284 and the all-zero PRDC no longer appear in the file.
+  note records the full cause: trained under the SG2-faithful
+  generator (commit c23dc0e), partially reverted by 894564f
+  (2026-08-04 14:09) which removed G-side blur and equalized-lr; the
+  checkpoint still loads cleanly because the revert changed a runtime
+  weight transform, not any parameter, so the mismatch is silent.
+
+edgeD - ANNOTATED WITH THE FROZEN-GENERATOR CAUSE
+  note = "best == last, no comparison possible - EMA generator weights
+          in the two checkpoints are bit-identical, so both cells
+          generated the same images | arch: run_config.json"
+  fidelity_winner = 'n/a'   diversity_winner = 'n/a'
+  best_fid = 7.8683   last_fid = 7.86831
+
+seednoise rows - BOTH PRESENT AND UNCHANGED
+  seednoise_mirror2_best, seednoise_mirror2_last
+  winners both 'n/a (seed noise)'
+
+IMPORTANT for the paper: your noise floor is the PER-METRIC MAXIMUM
+across the two seed-noise rows, not a single row. Verified:
+
+  metric        best row    last row    max      your figure
+  fid           0.051970    0.046770    0.052    0.052
+  recall        0.018500    0.008000    0.019    0.019
+  ab_coverage   0.007813    0.015625    0.016    0.016
+  precision     0.008000    0.003000    0.008    0.008
+  coverage      0.002500    0.003000    0.003    0.003
+
+All five reproduce. State the "max across both seeds" construction
+explicitly, or a reviewer checking any single row will find
+mismatches. If the table carries them: density max 0.016400,
+hue_entropy max 0.006266, aligned_sym max 0.001457.
+
+The file itself is included in this folder.
+
+
+======================================================================
+E. mirror2 snapshots
+======================================================================
+
+ALL SIX INTACT on this machine. Each loads cleanly with
+inference_only=True and 118 G tensors.
+
+The three that were corrupt in your copy (included in this folder):
+
+  snapshot_ep01400.pth
+      34229999 bytes
+      sha256 64a1d1876eec49eb1c13e184d8128c762f467ecc18e1a0a01d4cf29096c26fdf
+      epoch=1399  kid=None
+  snapshot_ep01450.pth
+      34230063 bytes
+      sha256 5e550f994a845caafe4284ca53eace6fa96bd8a6cef0ad6773fe19b299debe9b
+      epoch=1449  kid=0.0010059451451525092
+  snapshot_ep01500.pth
+      34229999 bytes
+      sha256 ecac2e0038de753f727513e4ecacc1b335a253d86e796a71b58b9c52aaa9907d
+      epoch=1499  kid=None
+
+The three that transferred correctly, so you can cross-check yours
+(NOT included in this folder - yours are already good):
+
+  snapshot_ep01250.pth
+      34229999 bytes
+      sha256 3da48e3477e1a55465df89e9283d349b56eebb78f83ca9fb4a44e38ca6bc30c2
+      epoch=1249  kid=None
+  snapshot_ep01300.pth
+      34230063 bytes
+      sha256 0694e659b7926c89d7ebfdae4321e65e55b0f673b104c1925c8194f07e88d715
+      epoch=1299  kid=0.0012278008507564664
+  snapshot_ep01350.pth
+      34229999 bytes
+      sha256 c167538ce74fa7ed89fb6e19adc5b8a605d6441afa5179bd21cd0462ad685028
+      epoch=1349  kid=None
+
+The 'epoch' field is the 0-based index: the file named ep01400 carries
+epoch=1399. See the numbering note in item C.
+
+
+======================================================================
+F. What is genuinely unrecoverable
+======================================================================
+
+F1. sharp1 ep800 and ep1200 - GONE. CONFIRMED.
+    results/sharp1/checkpoints/ contains exactly
+      ['checkpoint_best.pth', 'checkpoint_latest.pth']
+    snapshot_ep*.pth found: NONE
+    checkpoint_best epoch=1554, checkpoint_latest epoch=1599
+    The run is confirmed as SIX segments: history covers epochs
+    1..1600 with total_hrs restarts at 301, 501, 801, 1158, 1201.
+    Epochs 800 and 1200 ARE present in the history/metrics series but
+    have NO weight files. The loss and KID curves for those epochs are
+    reproducible; the models are not.
+
+F2. rebalance2 ep400 - GONE. CONFIRMED. NO REPORT SURVIVES IT.
+    Checkpoints present: checkpoint_best.pth epoch=459
+                         checkpoint_latest.pth epoch=599
+    There is no ep400 checkpoint.
+    Every surviving report post-dates the resume: checkpoint_latest.pth
+    was written 2026-07-27 03:00:24 and the earliest report is
+    2026-07-27 16:02:44.
+    NO report under results/rebalance2/ carries ab_coverage 0.5391.
+    Surviving ab_coverage values:
+      diversity/           0.56640625
+      diversity_clean/     0.51953125
+      diversity_mf1/       0.546875
+      ckpt_best/           0.56640625
+      ckpt_last/           0.01953125
+    The dose-response data point is unrecoverable from disk.
+
+F3. sg2f - STILL REPRODUCES. CONFIRMED LIVE, NOT FROM A LOG.
+    Strict load under current code (74f9b607...), both checkpoints:
+      checkpoint_best.pth   epoch=669  108 tensors
+        missing_keys: 0 []   unexpected_keys: 0 []
+        STRICT load: SUCCEEDS
+      checkpoint_latest.pth epoch=799  108 tensors
+        missing_keys: 0 []   unexpected_keys: 0 []
+        STRICT load: SUCCEEDS
+    EMA covers 102/102 generator parameters on both, so the new
+    partial-EMA guard correctly does NOT fire. The mismatch stays
+    silent - that silence is the diagnostic.
+
+    Regenerated 10000 images from checkpoint_best.pth with the frozen
+    headline protocol at seed 42, re-evaluated at seed 0:
+      fid         = 206.28359985351562
+      kid_mean    = 0.25764307379722595
+      precision   = 0.0
+      recall      = 0.0
+      density     = 0.0
+      coverage    = 0.0
+      k           = 5
+      ab_coverage = 0.15234375
+      hue_entropy = 0.5348944900808932
+      git_commit  = 74f9b607fc1daaebb6b65cb39c4bcdd5195db3c8
+
+    Against the 2026-08-26 sweep cell: FID reproduces to the exact
+    float (206.28359985351562 both times) and PRDC is all-zero both
+    times. kid_mean differs in the third decimal (0.2584260404109955
+    then vs 0.25764307379722595 now). The images are identical, so
+    that gap is KID estimator subset noise. Quote FID and PRDC as the
+    reproducible figures; treat any sg2f KID as approximate.
+
+F4. results/_checkpoint_archive/ - HEALTHY. ALL SHA256 UNCHANGED.
+    Files now carry epoch numbers. The renames were hash-verified;
+    content is untouched, so these are the same sha256 values as
+    before the rename.
+
+      mirror2_checkpoint_best_ep1194.pth
+          167030495  db20d3447b39799919d0745b2ecc81c744dba134881b1a31eebbc10bc135631b
+      mirror2_checkpoint_latest_ep1199.pth
+          167032443  17a6662bab5e4765f6ac8a0df68e5986c06ac6de7f01c76a0fa2ec2b5fbb1178
+      sharp1_checkpoint_best_ep1554.pth
+          166376115  72da21d7b0150cb98267ca9898d0fc1c1df4297666728703643e7a1b2f0c16df
+      sharp1_checkpoint_latest_ep1599.pth
+          166381803  a11cbd89d90c1d84e2df63a986f4064024717dcf60a0afe81110634d19abee78
+      mirror2_run_config_ep1200.json
+              2263  777bcabfca9d5f5c97457a6d57bb06e315b1aba5aeab1e0b6289472f4e249df2
+
+    mirror2_checkpoint_best_ep1194.pth is intact and byte-identical to
+    when it was archived.
+
+    THE ARCHIVE IS LOAD-BEARING. The continuation run beat the old
+    best KID and overwrote the live file, so the live
+    results/mirror2/checkpoints/checkpoint_best.pth now holds
+    epoch 1419 with best_kid=0.0009751534089446068. The ep1194 weights
+    behind every published mirror2 number exist ONLY in
+    results/_checkpoint_archive/mirror2_checkpoint_best_ep1194.pth.
+    There is no second copy anywhere, on this machine or off it.
+
+    Still outstanding: no off-machine copy of the archive exists. The
+    live mirror2 ep1419 and ep1499 checkpoints are also unarchived,
+    though with no further training planned nothing will overwrite
+    them.
+
+
+======================================================================
+SUMMARY FOR THE LIMITATIONS SECTION
+======================================================================
+
+GONE, UNRECOVERABLE:
+  - sharp1 ep800 and ep1200 weights. Present in the history series,
+    no files, no snapshots.
+  - rebalance2 ep400 weights AND its evaluation. No surviving report
+    carries ab_coverage 0.5391.
+
+SURVIVES AND VERIFIED:
+  - edgeD checkpoint_best and checkpoint_latest: 0/102 EMA tensors
+    differ, 2/108 G, 49/51 D.
+  - all six mirror2 snapshots.
+  - baseline metrics series: best training KID 0.011428117752075195
+    at metrics-epoch 115 (= checkpoint-epoch 114).
+  - corrected checkpoint_comparison.csv.
+  - four archived checkpoints, sha256 unchanged.
+  - sg2f load-and-fail behaviour reproduces exactly under current code.
+
+======================================================================

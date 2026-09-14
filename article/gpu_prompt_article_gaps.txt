@@ -1,0 +1,128 @@
+We are writing the MDPI Electronics article now. Every number in it has to
+trace to a file on disk, and six things the draft needs live only on your
+machine. This is a read-and-report job plus one evaluation - no training.
+
+PULL THE REPO FIRST and report the commit you are on before anything else.
+
+Answer each item separately. If something does not exist, say so plainly -
+"gone" is a usable answer and several of these feed a limitations section
+that has to state what cannot be reproduced. Do not reconstruct a number
+from a log entry; if the file is missing, report the file as missing.
+
+
+--- A. mirror1 pose metrics at n=5000 (highest priority) ---
+
+results/mirror1/eval/diversity/diversity_report.json predates section F, so
+it has no pose block at all. The only mirror1 pose numbers we have come from
+the n=1500 probe in results/mirror1/eval/symmetry_axis.json, whose real
+baseline (offset std 2.974) is not the n=5000 real baseline (2.885) used by
+every other row in the table. Mixing them is exactly what a reviewer picks at.
+
+FIRST check whether results/mirror1/generated/images still exists and how
+many files it holds.
+
+  - If it exists: just re-run metrics/evaluate_diversity.py over it against
+    data/source/images with the current metric suite and default seed 0,
+    writing to a NEW directory (results/mirror1/eval_pose/). Do not overwrite
+    the existing eval/. No regeneration needed - this is the safe path.
+
+  - Only if the images are gone: regenerate 10k with the frozen headline
+    protocol at seed 42
+        --truncation-psi 1.0 --truncation-psi-fine 1.2 --truncation-cutoff 3
+        --pure-frac 1.0 --num-images 10000 --seed 42
+    from mirror1's best checkpoint. RECONSTRUCT THE ARCHITECTURE FLAGS FROM
+    results/mirror1/run_config.json - it records g_mirror_coupling true and
+    g_mirror_axis null. Print your proposed command as a diff against that
+    file and show me the diff BEFORE running it. A dropped flag has already
+    cost this project 60 GPU-hours and produced a wrong post-mortem on top.
+
+Send back: the full diversity_report.txt, and specifically section F -
+axis offset std, IQR, frac |offset| >= 3 px for gen and real, the std ratio,
+and the fixed vs pose-aligned mirror IoU medians with their gaps.
+
+
+--- B. edgeD frozen-generator forensics ---
+
+Does results/edgeD/checkpoints/ still hold checkpoint_best.pth (ep579) and
+checkpoint_latest.pth (ep599)? results/_checkpoint_archive/ on the dev
+machine holds only mirror2 and sharp1, so these may be gone.
+
+If both survive, load them and report exact counts, not summaries:
+  - of the EMA tensors, how many differ at all between the two checkpoints
+    (expected 0 of 102)
+  - same for G (expected 2 of 108, both spectral-norm power-iteration
+    buffers - name them)
+  - same for D (expected 49 of 51)
+Use an exact equality test and report the denominators you actually found.
+
+If they are gone, say so - the section stands on the metric evidence
+(best and last agree to five decimals on FID, 7.86830 vs 7.86831) and we
+will drop the tensor counts.
+
+
+--- C. baseline/metrics/training_metrics.json is a stale partial sync ---
+
+Our copy stops at epoch 109 with a single KID point (0.012445 at ep100) and
+an mtime of 2026-07-03, but checkpoint_comparison.csv records baseline's
+best at ep114 and its last epoch as 144. Send the full file from your side.
+We need the KID series to state the R1 gamma-2 row as "best training KID X
+at epoch Y" instead of leaving the epoch cell pending.
+
+
+--- D. the corrected checkpoint_comparison.csv ---
+
+You regenerated it with sg2f marked FAILED and edgeD annotated, but it never
+synced. Our local copy still lists sg2f at FID 206.284 with all-zero PRDC as
+though it were a measurement. Send the corrected file. The article publishes
+a 16-model table built from it and the artefact has to match the table.
+
+While you are in there, confirm two things about that file:
+  - that edgeD is annotated with the frozen-generator cause, and
+  - that the two seednoise_mirror2_* rows are unchanged (we derive the whole
+    paper's noise floor from them: FID 0.052, recall 0.019, ab_coverage
+    0.016, precision 0.008, coverage 0.003).
+
+
+--- E. three mirror2 snapshots are corrupt in our copy ---
+
+Truncated in transfer. Ours:
+    snapshot_ep01400.pth   18,350,080 bytes   (siblings are ~34.2 MB)
+    snapshot_ep01450.pth        2,450 bytes
+    snapshot_ep01500.pth        1,334 bytes
+All three fail torch.load. ep1250, ep1300 and ep1350 load fine.
+
+Report the true sizes and sha256 on your side and re-send those three. The
+metrics for those epochs are intact so the epoch-curve figure is unaffected -
+this is about the weights still existing somewhere.
+
+
+--- F. what is genuinely unrecoverable (we must state this as fact) ---
+
+The limitations section names results that have no weights. Confirm each,
+one line per item, with the actual state on disk rather than from memory:
+
+  1. sharp1 ep800 and ep1200 - believed overwritten, since sharp1 ran as one
+     continued run through six segments and only checkpoint_best/latest were
+     kept. Confirm gone.
+  2. rebalance2 at ep400 - the run was resumed 400 -> 600, which overwrote
+     checkpoint_best.pth with ep460 and re-ran the evaluation into the same
+     directory. This destroyed a dose-response data point (ab_coverage
+     0.5391). Confirm the ep400 checkpoint and its evaluation are both gone,
+     and check whether any ab_gap or diversity report under
+     results/rebalance2/ still carries an ep400 timestamp.
+  3. sg2f - confirm its checkpoint still loads with 0 missing / 0 unexpected
+     keys under a strict load and still produces all-zero PRDC under current
+     code. That mismatch is a published diagnostic in the paper, so we want
+     it confirmed to still reproduce rather than quoted from a log.
+  4. results/_checkpoint_archive/ - sha256 all four files and confirm
+     mirror2_checkpoint_best.pth is intact. Every published mirror2 number
+     comes from those ep1194 weights and that archive is the only copy in
+     existence. If it is healthy, please also copy it somewhere off that
+     machine.
+
+
+--- format of the reply ---
+
+Plain text, one block per item A-F, values quoted exactly as the files give
+them (no rounding, no reformatting). Attach the actual files for C, D and E
+rather than pasting their contents.

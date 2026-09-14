@@ -1,0 +1,129 @@
+One overnight job for the article: protocol re-sweep on the two headline
+models, plus three new measurement scripts. Generation and evaluation only -
+NO training, nothing is resumed, no checkpoint is written. Nothing here may
+overwrite an existing results directory: every output goes to a NEW path.
+
+PULL THE REPO FIRST - this job needs three scripts that are new:
+  metrics/novelty_rate.py
+  metrics/ab_bin_stability.py
+  metrics/probe_symmetry_synthetic.py
+Report the commit you are on before starting.
+
+
+--- A. Protocol re-sweep on the final models (the main job) ---
+
+The headline generation protocol (layered psi 1.0/1.2 cutoff 3, pure) was
+tuned on nocolorada at FID ~10 and then frozen. The article needs to know
+whether the protocol ranking transfers to the final models at FID ~3.6-4.1.
+The layered cells already exist (the published evals), so 5 protocols x 2
+models = 10 new cells:
+
+  protocols (only these flags vary; everything else identical):
+    p085_mixed   --truncation-psi 0.85                    (blended default)
+    p10_mixed    --truncation-psi 1.0
+    p12_mixed    --truncation-psi 1.2
+    p10_pure     --truncation-psi 1.0  --pure-frac 1.0
+    p12_pure     --truncation-psi 1.2  --pure-frac 1.0
+
+  models:
+    sharp1   results/sharp1/checkpoints/checkpoint_best.pth
+    mirror2  results/_checkpoint_archive/mirror2_checkpoint_best_ep1194.pth
+             (the archive copy - the live checkpoint_best.pth was
+             overwritten by the ep1420 continuation and is NOT the
+             published model)
+
+DO NOT RETYPE THE GENERATION COMMANDS FROM MEMORY. Reconstruct each model's
+base command from the generation_config.json of its published eval
+(results/sharp1/eval1600/ and results/mirror2/eval/), change ONLY the psi /
+pure / cutoff flags per protocol above, and print the diff of every command
+against that base before running anything. mirror2 requires its
+architecture flag (g_mirror_axis true in run_config.json) - if the generate
+path takes it from the checkpoint automatically, confirm that by generating
+10 test images first and eyeballing them before committing to 10k.
+
+Per cell: 10,000 images at seed 42, then metrics/evaluate_diversity.py
+against data/source/images at default seed 0. Outputs:
+
+  results/resweep/<model>_<protocol>/generated/images
+  results/resweep/<model>_<protocol>/diversity/diversity_report.{json,txt}
+
+When all 10 are done, print a table: model, protocol, FID, precision,
+recall, ab_coverage, plus the two published layered cells as reference
+rows, so the transfer question is answered at a glance.
+
+
+--- B. Realistic novelty rate (new metric) ---
+
+Read meta.generated_dir from each published diversity_report.json and use
+exactly those directories - do not guess which generated set backed the
+published numbers:
+
+  results/sharp1/eval1600/diversity/diversity_report.json  -> <SHARP1_DIR>
+  results/mirror2/eval/diversity/diversity_report.json     -> <MIRROR2_DIR>
+
+Then:
+
+  python metrics/novelty_rate.py --real data/source/images \
+      --generated <SHARP1_DIR>  --out results/sharp1/eval1600/novelty
+  python metrics/novelty_rate.py --real data/source/images \
+      --generated <MIRROR2_DIR> --out results/mirror2/eval/novelty
+
+  # full-scale calibration check (disjoint real halves; expect ~5%):
+  python metrics/novelty_rate.py --real data/source/images \
+      --generated data/source/images --calibration-check \
+      --out results/_probes/novelty_calibration
+
+Each run writes novelty_report.json, novelty_scores.csv, and a
+novel_examples/ folder pairing the most novel realistic frames with their
+nearest catalogue frame. Include the novel_examples folders in the
+sync-back - they are article figure material.
+
+Also run it once on the rebalance4 generated set (read its
+meta.generated_dir the same way, out to results/rebalance4/eval/novelty)
+so the metric has three models to compare.
+
+
+--- C. ab_coverage bin stability ---
+
+  python metrics/ab_bin_stability.py --real data/source/images \
+      --sets sharp1=<SHARP1_DIR> mirror2=<MIRROR2_DIR> \
+      --out results/_probes/ab_bin_stability.json
+
+One line of the article rests on this: that the coverage ORDERING of the
+compared sets does not depend on the 16x16 bin choice.
+
+
+--- D. Symmetry probe timing ---
+
+The dev machine gave unstable timings (30-84 ms/image under load). Run:
+
+  python metrics/probe_symmetry_synthetic.py \
+      --real data/source/images --time-n 200 \
+      --out results/_probes/symmetry_synthetic.json
+
+on the idle machine and report the ms/image line. The case table in the
+JSON should match the dev machine's byte-for-byte (it is deterministic);
+say so explicitly if it does not.
+
+
+--- Sync-back ---
+
+Collect into to_copy/ mirroring the repo layout, with SHA256SUMS.txt
+(sha256 + byte size per file), exactly like last time:
+
+  results/resweep/**/diversity/diversity_report.{json,txt}
+  results/resweep/**/generation snapshot (whatever config file the
+      generate path wrote per cell)
+  results/sharp1/eval1600/novelty/**   (including novel_examples/)
+  results/mirror2/eval/novelty/**      (including novel_examples/)
+  results/rebalance4/eval/novelty/**
+  results/_probes/novelty_calibration/novelty_report.json
+  results/_probes/ab_bin_stability.json
+  results/_probes/symmetry_synthetic.json
+  the A-section summary table as resweep_summary.txt
+
+The generated image sets themselves stay on your machine - only reports,
+configs and the example images come back.
+
+
+NOTE: you do not run the commands above, if they need more than 30 minutes each. instead, create some script and I will run it and report back to you.
