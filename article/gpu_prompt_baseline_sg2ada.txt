@@ -9,8 +9,12 @@ Rules for this job:
 - Nothing under results/ may be modified or deleted. All new output goes to
   new directories named below.
 - Do not change gan/ or metrics/ code.
-- Anything that runs longer than 30 minutes: do not run it yourself. Write a
-  script for it and give it to me; I will start it.
+- Anything that runs longer than 30 minutes: do not run it yourself. Give
+  me the exact command (or a script) and I will start it myself. When it
+  has finished I will tell you, and you then check the output and report.
+- I WILL DISABLE THE INTERNET during the long runs. Everything those runs
+  need must therefore be downloaded and cached in Phase 1, while the
+  internet is still on - see step 4 of Phase 1.
 
 
 --- Phase 1. Setup and smoke test (you run this) ---
@@ -47,20 +51,50 @@ Rules for this job:
    R1 gamma: use the official heuristic from the StyleGAN2-ADA paper,
    gamma = 0.0002 * resolution^2 / batch = 0.0002 * 512^2 / 16 = 3.2768.
 
+4. Prepare for offline running. While the internet is still on, make sure
+   every download that training or evaluation would trigger is already
+   cached, then prove it works offline:
+   - pip packages for both environments (ours and ../stylegan3/.venv)
+   - the Inception network that stylegan3 downloads for fid50k_full
+     (it is fetched from an NVIDIA URL on first use; run the metric once
+     on the smoke-test snapshot so it is cached)
+   - the compiled CUDA extensions (the smoke test builds them; confirm the
+     cache folder exists)
+   - for our evaluation scripts: the torchvision Inception-v3 weights, the
+     torchmetrics FID Inception weights, and the LPIPS VGG weights. Run
+     metrics/evaluate_diversity.py once on a small set (for example 200
+     generated vs 200 real images, any existing generated folder, output to
+     a scratch folder outside results/) so all of them are downloaded.
+   Then disconnect from the network (or block it for these processes) and
+   re-run a few kimg of training with --metrics=fid50k_full and the small
+   evaluation, and confirm both finish with no download attempt. Report
+   where each cached file lives.
+
 STOP after Phase 1 and report. Do not start the long run.
 
 
---- Phase 2. Long training (script for me) ---
+--- Phase 2. Long training (command for me, I run it offline) ---
 
-Write run_sg2ada_baseline.bat (or .ps1) that trains with the settings of
+Give me run_sg2ada_baseline.bat (or .ps1) that trains with the settings of
 the smoke test for 10,000 kimg into ../sg2ada_runs/, saving a snapshot
 every 50 ticks (--snap=50) and computing fid50k_full at each snapshot
 (--metrics=fid50k_full), so the official selection rule (lowest FID) can
-be applied. The script must be resumable (--resume pointing at the latest
-snapshot) and log to a file.
+be applied. It must log to a file, and must not need the internet at any
+point. Also give me the exact command to resume from the latest snapshot
+in case the run is interrupted.
+
+Tell me the expected finish time, then stop. I will start it, disable the
+internet, and tell you when it has finished. At that point, first check
+the log and report: kimg reached, whether it ended cleanly, the
+fid50k_full value at every snapshot, and which snapshot has the lowest.
 
 
---- Phase 3. Evaluation (after training; tell me if it needs a script) ---
+--- Phase 3. Evaluation (also a command for me if it takes over 30 min) ---
+
+Generation and evaluation of two 10,000-image sets will take longer than
+30 minutes, so give me one script for all of the steps below, again able
+to run without the internet. When I tell you it has finished, check the
+outputs and report.
 
 For two snapshots - the one with the lowest fid50k_full (the official
 selection rule) and the final one:
