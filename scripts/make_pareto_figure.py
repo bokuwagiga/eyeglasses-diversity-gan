@@ -55,7 +55,7 @@ def find_report(run_dir):
     return None
 
 
-def read_runs(specs):
+def read_runs(specs, variant=False):
     rows = []
     for spec in specs:
         label, _, run_dir = spec.partition('=')
@@ -83,6 +83,7 @@ def read_runs(specs):
             'aligned_gap': ((d.get('pose') or {}).get('aligned_p50_gen', 0)
                             - (d.get('pose') or {}).get('aligned_p50_real', 0)
                             if d.get('pose') else None),
+            'variant': variant,
         })
     return rows
 
@@ -128,6 +129,7 @@ def panel(ax, rows, div_key, div_name, real_value=None):
     for r in pts:
         on_front = r['label'] in front
         ax.scatter(r['fid'], r[div_key], s=70,
+                   marker='s' if r.get('variant') else 'o',
                    facecolor='tab:blue' if on_front else 'white',
                    edgecolor='tab:blue', linewidth=1.4, zorder=3)
         headline = r['label'] in HEADLINE
@@ -163,8 +165,11 @@ def make_figure(rows, out_dir):
                    mec='tab:blue', ms=7, label='on the front'),
         plt.Line2D([], [], ls='none', marker='o', mfc='white',
                    mec='tab:blue', ms=7, label='dominated'),
+        plt.Line2D([], [], ls='none', marker='s', mfc='white',
+                   mec='tab:blue', ms=7,
+                   label='same model, psi 1.2 pure protocol'),
     ]
-    axes[0].legend(handles=handles, fontsize=8, loc='upper left',
+    axes[0].legend(handles=handles, fontsize=8, loc='lower left',
                    framealpha=0.9)
     fig.suptitle('Quality-diversity trade-off across generator variants',
                  fontsize=12)
@@ -211,6 +216,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--runs', nargs='*', default=DEFAULT_RUNS,
                     help='label=path/to/eval_dir pairs')
+    ap.add_argument('--extra-runs', nargs='*', default=[],
+                    help='label=path pairs plotted as protocol variants '
+                         '(square markers); excluded from the table')
     ap.add_argument('--out', default='article/figures')
     args = ap.parse_args()
 
@@ -220,7 +228,8 @@ def main():
     rows = read_runs(args.runs)
     if not rows:
         raise SystemExit('No reports found.')
-    make_figure(rows, out_dir)
+    extra = read_runs(args.extra_runs, variant=True)
+    make_figure(rows + extra, out_dir)
     write_table(rows, out_dir)
 
 
