@@ -1,0 +1,24 @@
+Small follow-up to the packaging job. Nothing under results/ changes.
+
+PULL THE REPO FIRST and report the commit you are on.
+
+1. Copy the brand-check working files from your scratchpad into the repo:
+
+     mirror2_sample.txt  -> article/brand_check/mirror2_sample.txt
+     sharp1_sample.txt   -> article/brand_check/sharp1_sample.txt
+     brand_notes.txt     -> article/brand_check/brand_notes.txt
+
+   If brand_notes.txt does not already give one line per sampled image with
+   its class (readable brand name, logo only, distorted, unreadable marks,
+   no marks) and the brand name where readable, rewrite it in that form from
+   your notes so that every count in your previous reply can be recomputed
+   from the file. Add a short header saying how the 200 images per set were
+   sampled (random.Random(0).sample over the sorted file list) and how they
+   were inspected.
+
+2. Commit only these three files with the message
+   "Record the brand-name check of the released image sets"
+   and push. Do not add any other files.
+
+3. Reply with the commit hash and the per-class counts recomputed from the
+   committed brand_notes.txt for each set.
