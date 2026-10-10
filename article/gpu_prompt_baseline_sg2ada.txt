@@ -1,0 +1,88 @@
+Baseline for the article: the official StyleGAN2 with ADA, trained on the
+same 6,511 catalogue images, evaluated with our metric suite. The article
+compares only our own model variants, and reviewers will ask how the
+official model does.
+
+PULL THE REPO FIRST and report the commit you are on.
+
+Rules for this job:
+- Nothing under results/ may be modified or deleted. All new output goes to
+  new directories named below.
+- Do not change gan/ or metrics/ code.
+- Anything that runs longer than 30 minutes: do not run it yourself. Write a
+  script for it and give it to me; I will start it.
+
+
+--- Phase 1. Setup and smoke test (you run this) ---
+
+1. Clone the official NVIDIA repository next to our project, not inside it:
+       git clone https://github.com/NVlabs/stylegan3 ../stylegan3
+   Record the commit hash. Install anything it needs into a SEPARATE
+   virtual environment (../stylegan3/.venv), not our project environment.
+   We use its StyleGAN2 configuration (--cfg=stylegan2), which is the
+   official StyleGAN2 with adaptive discriminator augmentation.
+
+2. Prepare the training data in a new folder ../sg2ada_data/:
+   - take every image in data/source/images
+   - centre-crop to 2:1 and resize to 256x512 with BICUBIC, exactly as
+     metrics/evaluate_diversity.py load_rgb() does (reuse that function)
+   - resize to 512 wide stays as is (the 256x512 image is the content);
+     pad top and bottom to 512x512 with the image's own background colour,
+     taken as the median of its border pixels (same estimate as
+     metrics/diversity_metrics.extract_silhouette)
+   - write them with ../stylegan3/dataset_tool.py into a zip dataset at
+     512x512
+   Report the number of images (must be 6511) and show me 4 examples.
+
+3. Smoke test: train for a few kimg with --cfg=stylegan2 --gpus=1
+   --batch=16 --mirror=1 --aug=ada, gamma as computed below, and
+   --metrics=none. Report:
+   - whether the custom CUDA ops compiled or fell back to the slow
+     reference implementation (the log says which)
+   - seconds per kimg
+   - the projected wall-clock time for 10,000 kimg
+   - peak GPU memory
+
+   R1 gamma: use the official heuristic from the StyleGAN2-ADA paper,
+   gamma = 0.0002 * resolution^2 / batch = 0.0002 * 512^2 / 16 = 3.2768.
+
+STOP after Phase 1 and report. Do not start the long run.
+
+
+--- Phase 2. Long training (script for me) ---
+
+Write run_sg2ada_baseline.bat (or .ps1) that trains with the settings of
+the smoke test for 10,000 kimg into ../sg2ada_runs/, saving a snapshot
+every 50 ticks (--snap=50) and computing fid50k_full at each snapshot
+(--metrics=fid50k_full), so the official selection rule (lowest FID) can
+be applied. The script must be resumable (--resume pointing at the latest
+snapshot) and log to a file.
+
+
+--- Phase 3. Evaluation (after training; tell me if it needs a script) ---
+
+For two snapshots - the one with the lowest fid50k_full (the official
+selection rule) and the final one:
+
+1. Generate 10,000 images at 512x512 with ../stylegan3/gen_images.py,
+   seeds 0-9999, truncation psi 1.0 (the official default), noise mode
+   const.
+2. Crop each back to the central 256x512 (rows 128-383), the region that
+   holds the original image content.
+3. Write them to results/baseline_sg2ada/<snapshot>/generated/images/.
+4. Run our standard evaluation on each set, exactly as for the published
+   models:
+     python metrics/evaluate_diversity.py --generated <dir> \
+         --real data/source/images --out results/baseline_sg2ada/<snapshot>/diversity
+     python metrics/diagnose_artifacts.py --real data/source/images \
+         --generated <dir> --out results/baseline_sg2ada/<snapshot>/artifacts
+     python metrics/novelty_rate.py --real data/source/images \
+         --generated <dir> --out results/baseline_sg2ada/<snapshot>/novelty
+
+Then collect into to_copy/ (repo layout, with SHA256SUMS.txt, as before):
+   - every report .json/.txt under results/baseline_sg2ada/
+   - the training log, the training options json from ../sg2ada_runs/,
+     and the metric-fid50k_full.jsonl file
+   - 24 random generated images per evaluated snapshot (seed 0), for a
+     visual check
+   - the stylegan3 commit hash and the exact command lines used
