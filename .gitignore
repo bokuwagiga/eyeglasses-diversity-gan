@@ -27,3 +27,6 @@ article/overleaf/
 article/**/*.log
 article/**/_compiletest.*
 article/**/article.pdf
+
+# Release packaging output (large zips)
+zenodo_upload/
