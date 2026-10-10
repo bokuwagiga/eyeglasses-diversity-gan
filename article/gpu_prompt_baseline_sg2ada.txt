@@ -26,8 +26,9 @@ Rules for this job:
    - take every image in data/source/images
    - centre-crop to 2:1 and resize to 256x512 with BICUBIC, exactly as
      metrics/evaluate_diversity.py load_rgb() does (reuse that function)
-   - resize to 512 wide stays as is (the 256x512 image is the content);
-     pad top and bottom to 512x512 with the image's own background colour,
+   - keep that 256x512 image unchanged as the content, and pad it with
+     128 rows at the top and 128 at the bottom to 512x512, using the
+     image's own background colour,
      taken as the median of its border pixels (same estimate as
      metrics/diversity_metrics.extract_silhouette)
    - write them with ../stylegan3/dataset_tool.py into a zip dataset at
