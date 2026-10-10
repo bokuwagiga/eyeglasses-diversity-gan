@@ -1,0 +1,68 @@
+Packaging job for the public release of the article. No training, no
+generation, no evaluation. Do not modify, move or delete anything under
+results/ - only read from it and write to the new folder zenodo_upload/.
+
+PULL THE REPO FIRST and report the commit you are on.
+
+
+--- A. Find the exact image sets behind the published numbers ---
+
+Do not guess which folder was used. Read meta.generated_dir from:
+
+  results/mirror2/eval/diversity/diversity_report.json
+  results/sharp1/eval1600/diversity/diversity_report.json
+
+For each set report: the directory path, the number of PNG files (must be
+10000), and the generation_config.json next to it (checkpoint path,
+truncation_psi, truncation_psi_fine, truncation_cutoff, pure_frac, seed,
+g_mirror_axis). Expected for both: generate_only
+results/<model>/checkpoints/checkpoint_best.pth, psi 1.0, psi_fine 1.2,
+cutoff 3, pure_frac 1.0, seed 42, 10000 images; g_mirror_axis true for
+mirror2 and false for sharp1. Note that mirror2's live checkpoint_best.pth
+was later overwritten by the continuation run; the images were generated
+before that, from the epoch-1194 weights now kept in
+results/_checkpoint_archive/. If anything else differs, STOP and report
+before packaging.
+
+
+--- B. Brand-logo check (report only, change nothing) ---
+
+The real catalogue photos have brand names printed on the lenses or temples,
+and the generator can reproduce lens text. Before the images become public
+we need to know whether any generated image shows a readable brand name.
+
+For each of the two sets, open a random sample of 200 images (fixed random
+seed 0) and look at them. Report:
+  - how many show any text-like marks at all
+  - how many show a brand name you can actually read, and which name
+  - the file names of every image with readable text
+Do not delete or edit any image. This is a report for the authors to decide.
+
+
+--- C. Build the zips ---
+
+Create zenodo_upload/ in the repo root with:
+
+  mirror2_images.zip   - the 10,000 PNGs of the mirror2 set, plus its
+                         metadata.csv, inside a folder mirror2_images/
+  sharp1_images.zip    - the same for sharp1, inside a folder sharp1_images/
+
+Use plain names inside the zips (glass_00000.png ... glass_09999.png and
+metadata.csv). No results/ paths, no config files, no other files.
+
+Then write zenodo_upload/SHA256SUMS.txt with sha256 and byte size of both
+zips, and verify that each zip opens and contains exactly 10,000 PNG files
+plus metadata.csv.
+
+
+--- D. Backup of the published weights ---
+
+Copy results/_checkpoint_archive/ to an external drive or cloud folder if
+one is available, then confirm with sha256 that the copies match. If no
+external location is available, say so - do not skip silently.
+
+
+--- Reply ---
+
+Plain text, one block per item A-D. Do not copy the zips back to the dev
+machine; the authors will upload them to Zenodo from this computer.

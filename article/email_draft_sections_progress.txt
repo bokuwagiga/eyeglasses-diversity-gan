@@ -1,0 +1,23 @@
+Subject: Article draft - first sections ready
+
+Hi Dalius,
+
+I started writing into the template you sent. So far I have drafted the
+Materials and Methods, the metric suite section, and the Results (main
+table, Pareto figure, the checkpoint comparison table is next).
+Everything compiles and every number is taken directly from the result
+files.
+
+Two things I added since we last spoke: I re-ran the generation protocol
+sweep on the two final models to confirm the frozen protocol still ranks
+first (it does, nothing beats it beyond seed noise), and there is a new
+"novelty" metric that finds generated frames that don't exist in the
+catalogue - about 1.5% of generated images are new designs that pass all
+quality checks.
+
+The first version is on Overleaf, I will send access / add you shortly.
+Abstract and introduction I will write last. Placeholders left for you:
+correspondence email, funding line, and the author contributions.
+
+Best regards,
+Giga
