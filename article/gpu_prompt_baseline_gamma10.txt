@@ -1,0 +1,91 @@
+Second StyleGAN2-ADA baseline run, with stronger R1 regularisation.
+
+Why: the first baseline run (gamma 3.2768, the StyleGAN2-ADA heuristic)
+reached its lowest fid50k_full 9.06 at 1,600 kimg and then collapsed between
+1,600 and 1,800 kimg because the discriminator overfit the 6,511 images. It
+therefore saw about 10x fewer images than our models. Reviewers may say it
+was under-trained. A higher R1 gamma is the standard, official way to slow
+discriminator overfitting, so this run tests whether the official model,
+stabilised, can train longer and reach a better result.
+
+PULL THE REPO FIRST and report the commit you are on.
+
+Rules, as before:
+- Do not modify or delete anything in the existing run folders (00000-...,
+  00001-...) or under results/. New output only.
+- Use the same stylegan3 clone, environment, dataset zip and local
+  compatibility patches as the first run. No other code changes.
+- I will run the training myself with the internet OFF. You prepare the
+  script, check it starts correctly, then stop and give me the command.
+
+
+--- 1. The training script ---
+
+Create run_sg2ada_gamma10.ps1 next to the existing run_sg2ada_baseline.bat.
+It must train with exactly the first run's command, changing only:
+
+    --gamma=10  --kimg=3000  --desc=baseline-gamma10
+
+Everything else identical: --cfg=stylegan2 --gpus=1 --batch=16 --mirror=1
+--aug=ada --metrics=fid50k_full --snap=50, same --data, same --outdir, same
+environment variables (DNNLIB_CACHE_DIR, dead proxy, PATH). Start from
+scratch (no --resume). Log everything to a timestamped log file.
+
+Print a diff of the new command against the first run's command
+(training_options.json of 00000-...) and show it to me. The only
+differences allowed are gamma, kimg and desc.
+
+
+--- 2. Automatic stop rule inside the script ---
+
+The script must stop training by itself, so that it neither runs past a
+collapse nor needs me to watch it. Run train.py as a child process and,
+every 60 seconds, read metric-fid50k_full.jsonl of the new run folder.
+Stop the training (kill the child process) as soon as EITHER:
+
+  a) the lowest FID so far has not improved by more than 2% for three
+     consecutive snapshots (600 kimg), or
+  b) the latest FID is more than 3 times the lowest FID so far (collapse),
+
+but only right after a new line has been appended to the jsonl, i.e. after
+the snapshot pickle for that line has been written. Otherwise training
+ends normally at 3,000 kimg.
+
+When it stops, the script prints and logs: the reason (rule a, rule b or
+kimg limit), every snapshot with its FID, and the snapshot with the lowest
+FID.
+
+Write the rule logic as a small function and test it before handing over,
+on the FID values of the first run:
+    305.8, 59.4, 32.8, 28.9, 25.6, 21.3, 17.0, 9.28, 9.06, 219.1
+It must trigger rule b at the 219.1 line, and report 9.06 as the best.
+
+
+--- 3. Smoke check, then stop ---
+
+Start the script with the internet off, let it reach tick 1 and the first
+fid50k_full evaluation at kimg 0, confirm no download is attempted and the
+log looks normal, then stop it, delete only that smoke-test run folder, and
+report:
+  - the command diff from step 1
+  - the result of the rule test from step 2
+  - the exact command for me to start the real run
+  - expected maximum duration (3,000 kimg at about 41 s/kimg plus about
+    4 minutes per FID evaluation)
+
+
+--- 4. After I tell you it has finished ---
+
+Report the stop reason, the full FID curve, and the lowest-FID snapshot.
+Then give me one script, again offline, that runs Phase 3 on that snapshot
+exactly as for snapshot 001600 of the first run (10,000 images, seeds
+0-9999, psi 1.0, noise const, crop rows 128-383, our three evaluations),
+writing to results/baseline_sg2ada_gamma10/snap<NNNNNN>/. Also make a
+24-image visual check sheet of the selected snapshot and of the last
+snapshot.
+
+When that has finished, collect into to_copy/ as before (reports, logs,
+training_options.json, metric-fid50k_full.jsonl, stats.jsonl, sheets,
+exact commands, SHA256SUMS.txt) together with a RESULTS_SUMMARY.txt that
+adds this run as a fourth column next to the first baseline, sharp1 and
+mirror2.
