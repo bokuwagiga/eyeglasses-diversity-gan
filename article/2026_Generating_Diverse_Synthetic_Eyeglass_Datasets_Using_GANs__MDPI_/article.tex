@@ -388,6 +388,32 @@ generation seed 42. Because the protocol was selected on an intermediate checkpo
 10.2, we repeated the comparison on the two final models
 (Section~\ref{subsec:transfer}).
 
+\subsection{StyleGAN2-ADA Baseline}
+\label{subsec:baseline}
+
+To compare against an established model, we trained the official
+StyleGAN2 with adaptive discriminator
+augmentation~\cite{karras2020stylegan2,karras2020ada} on the same images,
+using NVIDIA's StyleGAN3 code with its StyleGAN2 configuration. The official
+code trains only on square images, so each $256 \times 512$ training image
+was padded to $512 \times 512$ with 128 rows at the top and bottom in its
+own background colour. The generated images were cropped back to the
+central $256 \times 512$ band before evaluation. Training used batch 16,
+horizontal flips, and ADA with the official set of augmentations, which
+includes hue and saturation changes. We trained two runs that differ only
+in the $R_1$ weight: the heuristic of the ADA paper,
+$\gamma = 0.0002 \cdot 512^2 / 16 = 3.28$, and $\gamma = 10$. FID on 50,000
+generated images, the official metric, was computed every 200 kimg, and the
+snapshot with the lowest value was selected, as in the official procedure.
+The $\gamma = 10$ run was stopped by a rule fixed before it started: stop
+when the lowest FID has not improved by more than 2\% over three snapshots,
+or when FID exceeds three times its lowest value. The $\gamma = 3.28$ run
+was interrupted once at 1,800 kimg and resumed from its last snapshot. A few
+small changes were needed to run the official code with current versions of
+PyTorch and SciPy; none of them affects training or the FID computation.
+Images were generated with $\psi = 1.0$, the official default, and
+evaluated with exactly the same scripts and settings as our models.
+
 \subsection{Reproducibility}
 \label{subsec:reproducibility}
 
@@ -838,8 +864,9 @@ against recall (a) and colour coverage (b). Filled markers lie on the
 Pareto front of the plotted set; square markers are the two headline
 models re-sampled under the $\psi = 1.2$ single-latent protocol
 (Section~\ref{subsec:transfer}), showing that the front is traced by the
-generation protocol as well as by training. The dashed line in (b) is the
-real dataset's coverage at matched sample size.}
+generation protocol as well as by training. The triangle is the official
+StyleGAN2-ADA with $\gamma = 10$ (Section~\ref{subsec:baseline_results}). The
+dashed line in (b) is the real dataset's coverage at matched sample size.}
 \label{fig:pareto}
 \end{figure}
 
@@ -879,6 +906,74 @@ rendering quality; the diversity differences between the models are
 established by the metrics, not by inspection at this sample size.}
 \label{fig:grid}
 \end{figure}
+
+\subsection{Comparison with StyleGAN2-ADA}
+\label{subsec:baseline_results}
+
+Table~\ref{tab:baseline} compares the two official StyleGAN2-ADA runs of
+Section~\ref{subsec:baseline} with our two headline models. With the
+heuristic $\gamma = 3.28$ the official model reached its lowest official FID
+of 9.06 at 1,600 kimg and then collapsed: at 1,800 kimg its FID was 219, and
+the final snapshot produced only saturated colour blobs. Its selected
+snapshot covers little of the real distribution (recall 0.203). With
+$\gamma = 10$ training was stable for longer, the lowest official FID was
+3.04 at 1,800 kimg, and the result is a much stronger baseline. We therefore
+compare mainly against the $\gamma = 10$ run. That a single change of
+$\gamma$ separates a collapsing run from a strong one agrees with our own
+$R_1$ sweep (Section~\ref{subsec:ablations}).
+
+\begin{table}[H]
+\caption{Official StyleGAN2-ADA against our models, all evaluated with the
+same scripts on matched 5,000-image subsamples. The baselines use their
+lowest-FID snapshot and $\psi = 1.0$. Real reference values: colour
+coverage 0.566, hue entropy 0.861, yaw dispersion ratio 1. The last column
+counts images with four or more artifact flags among 10,000.}
+\label{tab:baseline}
+\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{lcccccccc}
+\toprule
+\textbf{Model} & \textbf{FID} & \textbf{Prec.} & \textbf{Recall} &
+\textbf{Cov.} & \textbf{ab cov.} & \textbf{Hue ent.} & \textbf{Yaw} &
+\textbf{$\geq$4 flags} \\
+\midrule
+StyleGAN2-ADA, $\gamma = 3.28$ & 13.858 & 0.829 & 0.203 & 0.763 & 0.438 & 0.800 & 1.20 & 360 \\
+StyleGAN2-ADA, $\gamma = 10$   & 4.699  & 0.883 & 0.632 & 0.939 & 0.422 & 0.831 & 1.20 & 174 \\
+sharp1 (1,600 ep)              & 3.583  & 0.918 & 0.626 & 0.950 & 0.590 & 0.859 & 1.07 & 85  \\
+mirror2                        & 4.064  & 0.869 & 0.705 & 0.924 & 0.613 & 0.850 & 0.45 & 112 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Against the $\gamma = 10$ baseline the picture is mixed rather than one-sided.
+Both of our models have a better FID (3.58 and 4.06 against 4.70), and
+sharp1 also has higher precision. On recall and coverage the baseline
+matches sharp1 (0.632 against 0.626, within the noise floor), while mirror2
+is clearly ahead on recall (0.705). The clearest difference is colour. The
+baseline covers 0.422 of the colour cells, well below the real value of
+0.566, and its hue entropy is also lower, whereas both of our models cover
+the real colour range. This is what the ablations of
+Section~\ref{subsec:ablations} predict: the official augmentations include
+hue and saturation changes, which reduced colour coverage in our runs, and
+the official training has no rare-colour sampling. The baseline also has
+about twice as many heavily flagged images as sharp1, and it still produces
+occasional near-blank frames. Its one advantage is pose: its yaw
+dispersion is 1.20, slightly above the real value, while mirror2 collapses
+to 0.45, as discussed above.
+
+The baseline was generated with $\psi = 1.0$ and a single latent per image,
+whereas our models use the layered protocol. At that same protocol our
+models still reach FID 3.60 and 4.03, recall 0.618 and 0.687, and colour
+coverage 0.570 and 0.543 (Table~\ref{tab:transfer}), so the comparison does
+not depend on the generation protocol. Two limits apply. The baseline was
+trained at $512 \times 512$ on padded images rather than directly at
+$256 \times 512$, and it was trained for fewer images than our models,
+because with both values of $\gamma$ its FID stopped improving and then
+deteriorated well before our training length. The comparison shows what the
+official model gives on this dataset with its recommended settings and one
+stronger regularisation value; it does not show what it could reach with
+further tuning, which is what the ablations of this paper did for our own
+model.
 
 \subsection{Generation-Protocol Transfer}
 \label{subsec:transfer}
@@ -939,7 +1034,8 @@ best.
 \label{subsec:novelty_results}
 
 Table~\ref{tab:novelty} applies the novelty metric of
-Section~\ref{subsec:novelty} to the headline models and to rebalance4. The
+Section~\ref{subsec:novelty} to the headline models, to rebalance4 and to the
+two StyleGAN2-ADA baselines. The
 nearest-neighbour distances of the generated images are close to the real
 calibration distances (medians 4.41 to 4.47, against 4.29). Novelty is
 therefore limited to a small tail rather than a general shift. Together with
@@ -960,18 +1056,27 @@ structural artifact suite.}
 sharp1 (1,600 ep) & 4.7\% & 2.1\% & 1.3\% \\
 mirror2           & 6.2\% & 2.5\% & 1.6\% \\
 rebalance4        & 7.1\% & 2.4\% & 1.7\%\tsup{\dag} \\
+StyleGAN2-ADA, $\gamma = 3.28$ & 8.2\% & 2.4\% & 1.8\% \\
+StyleGAN2-ADA, $\gamma = 10$   & 6.4\% & 2.4\% & 1.7\% \\
+Held-out real images           & 4.4\% & 2.8\% & -- \\
 \bottomrule
 \end{tabular}
 \begin{adjustwidth}{0cm}{0cm}
 \noindent{\footnotesize \tsup{\dag} rebalance4 was scored under the
-earlier 11-check artifact suite, so its strict rate is not comparable with
-the rows above.}
+earlier 11-check artifact suite, so its strict rate is not directly
+comparable with the other rows. The held-out row scores one half of the real
+set against the other half (Section~\ref{subsec:novelty}).}
 \end{adjustwidth}
 \end{table}
 
-The ordering matches the recall story: mirror2 produces the most genuinely
-new frames, 81 of 5,000 images that are far from every catalogue frame and
-its mirror, inside the real manifold, and free of structural flags. The strict column is the most reliable of the three, because quality is
+The rates are similar across all models: 2.1 to 2.5\% realistic novelty
+and 1.3 to 1.8\% after the artifact filter, close to the 2.8\% of held-out
+real images. All generators therefore add new designs at roughly the rate
+that a new set of catalogue photographs would. The metric does not rank the
+models: the $\gamma = 3.28$ baseline, which has by far the lowest recall,
+has the highest strict rate. A high novelty rate is not evidence of broad
+coverage, and the novelty rate should be read together with recall and
+coverage, not instead of them. The strict column is the most reliable of the three, because quality is
 lowest in the novel tail. For the two headline models only 62 to 64\% of
 novel realistic frames pass all artifact checks, against 84 to 87\% of the
 full sets, and the flags concentrate among the most novel images, as the
@@ -1072,6 +1177,13 @@ better FID (13.62 against 14.47), but the last has higher recall (0.130
 against 0.103) and much higher colour coverage (0.434 against 0.305). Taken
 together, the minimum-KID checkpoint is a reliable guard against collapse,
 but in six of sixteen runs it was not the checkpoint with the best diversity.
+
+The official StyleGAN2-ADA baseline shows the same pattern
+(Section~\ref{subsec:baseline_results}). With $\gamma = 3.28$ its official
+FID was 9.06 at 1,600 kimg and 219 at 1,800 kimg; with $\gamma = 10$ it was
+3.04 at 1,800 kimg and 7.04 at 2,400 kimg. FID rose after its minimum in
+both runs, and sharply in the first, so lowest-FID selection again protected
+against degradation and collapse.
 
 \subsection{Continued Training of the Headline Model}
 \label{subsec:continuation}

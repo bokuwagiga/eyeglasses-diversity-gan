@@ -129,7 +129,7 @@ def panel(ax, rows, div_key, div_name, real_value=None):
     for r in pts:
         on_front = r['label'] in front
         ax.scatter(r['fid'], r[div_key], s=70,
-                   marker='s' if r.get('variant') else 'o',
+                   marker={'protocol': 's', 'baseline': '^'}.get(r.get('variant'), 'o'),
                    facecolor='tab:blue' if on_front else 'white',
                    edgecolor='tab:blue', linewidth=1.4, zorder=3)
         headline = r['label'] in HEADLINE
@@ -168,8 +168,11 @@ def make_figure(rows, out_dir):
         plt.Line2D([], [], ls='none', marker='s', mfc='white',
                    mec='tab:blue', ms=7,
                    label='same model, psi 1.2 pure protocol'),
+        plt.Line2D([], [], ls='none', marker='^', mfc='white',
+                   mec='tab:blue', ms=7,
+                   label='official StyleGAN2-ADA'),
     ]
-    axes[0].legend(handles=handles, fontsize=8, loc='lower left',
+    axes[0].legend(handles=handles, fontsize=8, loc='center left',
                    framealpha=0.9)
     fig.suptitle('Quality-diversity trade-off across generator variants',
                  fontsize=12)
@@ -219,6 +222,9 @@ def main():
     ap.add_argument('--extra-runs', nargs='*', default=[],
                     help='label=path pairs plotted as protocol variants '
                          '(square markers); excluded from the table')
+    ap.add_argument('--baseline-runs', nargs='*', default=[],
+                    help='label=path pairs of external baselines (triangle '
+                         'markers); excluded from the table')
     ap.add_argument('--out', default='article/figures')
     args = ap.parse_args()
 
@@ -228,8 +234,9 @@ def main():
     rows = read_runs(args.runs)
     if not rows:
         raise SystemExit('No reports found.')
-    extra = read_runs(args.extra_runs, variant=True)
-    make_figure(rows + extra, out_dir)
+    extra = read_runs(args.extra_runs, variant='protocol')
+    base = read_runs(args.baseline_runs, variant='baseline')
+    make_figure(rows + extra + base, out_dir)
     write_table(rows, out_dir)
 
 
