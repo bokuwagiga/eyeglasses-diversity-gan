@@ -1,0 +1,80 @@
+GAN Eyeglass Dataset Evaluation Results (v2 - 256x512)
+Generated images : 10000
+Evaluated sample : 10000
+======================================================================
+
+--- Standard Metrics ---
+
+  FID        : 38.4709  [GOOD]
+  What it measures : Distance between real and generated image distributions
+  in Inception-v3 feature space. Lower is better. FID < 10 is considered
+  excellent for a narrow product domain. Real images were center-cropped
+  and resized to 256x512 to match generated images before comparison.
+
+  IS (mean)  : 1.3423 +- 0.0102
+  What it measures : Sharpness and variety of generated images using an
+  ImageNet classifier. NOTE: IS is unreliable for eyeglass frames because
+  the Inception classifier was not trained on this domain. Low IS values
+  are expected and should not be interpreted as poor generation quality.
+
+  LPIPS      : 0.3099 +- 0.0181
+  What it measures : Perceptual distance between generated images and
+  randomly paired real images using deep VGG features. Higher values
+  indicate the generated images look perceptually different from the real
+  ones - which is desirable as it means the model is not memorising
+  training data. Values in the range 0.25-0.45 are typical for generative
+  models on product imagery.
+
+--- Domain-Specific Metrics ---
+
+  Edge Coherence   : 0.6572 +- 0.0170  [EXCELLENT]
+  What it measures : How well the generated mask boundary aligns with
+  actual frame edges in the RGB image. Computed as F1 between dilated
+  mask boundary pixels and Canny edge pixels within a 3-pixel tolerance
+  band. A high score means the model consistently places mask edges where
+  real colour discontinuities (frame boundaries) appear in the image.
+  Score > 0.35 = acceptable; > 0.55 = excellent joint generation quality.
+
+  Mask Regularity  : 0.9902 +- 0.0474  [EXCELLENT]
+  What it measures : How clean and well-formed the generated masks are.
+  Measures the fraction of mask pixels captured by the single largest
+  contour, penalised by the number of disconnected fragments. Score near
+  1.0 = one clean closed shape; score near 0 = fragmented or noisy mask.
+  For hollow frame outlines the filled-contour overlap method is used
+  to keep the metric in [0, 1]. Score > 0.60 = good; > 0.80 = excellent.
+
+  Frame Symmetry   : 0.8972 +- 0.0331  [EXCELLENT]
+  What it measures : Left-right symmetry of the generated frame within
+  the masked region. Eyeglass frames are symmetric by design, so a high
+  score indicates the model has learned physically realistic structure.
+  Computed as 1 - normalised mean pixel difference between the frame
+  region and its horizontal mirror. Score > 0.75 = realistic;
+  > 0.85 = highly symmetric (excellent).
+
+--- Diversity Metrics ---
+
+  Color Diversity      : 0.0567  [GOOD]
+  What it measures : Mean pairwise colour distance between generated
+  images in RGB space. Higher values indicate a wider range of frame
+  colours and materials. Low scores suggest mode collapse toward a single
+  colour. Score > 0.05 = acceptable variety; > 0.09 = strong diversity.
+
+  Mask Shape Diversity : 0.0745  [GOOD]
+  What it measures : Mean pairwise pixel difference between generated
+  masks (downsampled to 64x32). Higher values mean the model generates
+  a variety of frame geometries (round, rectangular, cat-eye, etc.)
+  rather than repeating the same shape. Score > 0.05 = good variety.
+
+======================================================================
+########## gan/metrics/evaluation_results_final.txt
+======================================================================
+GAN Eyeglass Dataset Evaluation Results (v2 - 256x512)
+Generated images : 10000
+Evaluated sample : 10000
+======================================================================
+
+--- Standard Metrics ---
+
+  FID        : 6.1348  [EXCELLENT]
+  What it measures : Distance between real and generated image distributions
+  in Inception-v3 feature space. Lower is be

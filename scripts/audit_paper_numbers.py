@@ -214,13 +214,24 @@ def derived(vals):
     # predecessor evaluations from the thesis repository
     thesis = os.path.join(os.path.dirname(HERE), '..', 'vilniustech', 'Thesis',
                           'synthetic-eyeglasses-generator', 'results')
-    for rel in ('gan/metrics/evaluation_results_final.txt',
-                'gan_20260515/metrics/evaluation_results.txt',
-                'gan/metrics/real_reference_results.txt'):
-        p = os.path.normpath(os.path.join(thesis, rel))
+    for p in (os.path.join(thesis, 'gan', 'metrics', 'evaluation_results_final.txt'),
+              os.path.join(thesis, 'gan', 'metrics', 'real_reference_results.txt'),
+              os.path.join(HERE, 'reference', 'thesis_gan_20260515_evaluation_results_recovered.txt')):
+        p = os.path.normpath(p)
         if os.path.exists(p):
             for m in re.finditer(r':\s*(\d+\.\d+)', open(p).read()):
-                out.append((float(m.group(1)), 'thesis ' + rel))
+                out.append((float(m.group(1)), 'thesis ' + os.path.basename(p)))
+    # the mapping-depth ablation table of the thesis (chapters/05_results.tex)
+    tex = os.path.normpath(os.path.join(thesis, '..', 'thesis_overleaf', 'chapters', '05_results.tex'))
+    if os.path.exists(tex):
+        body = io.open(tex, encoding='utf-8').read()
+        i = body.find('tab:ablation_mapping'); j = body.find('end{tabular}', i)
+        for m in re.finditer(r'(\d+\.\d+)', body[i:j]):
+            out.append((float(m.group(1)), 'thesis ablation table'))
+    # generation seed ranges quoted for the baseline variants
+    for cfg in glob.glob(os.path.join(HERE, 'results', 'baseline_sg2ada_gamma10', 'snap001800_*', 'generation_config.json')):
+        for m in re.finditer(r'(\d{4,6})-(\d{4,6})', io.open(cfg, encoding='utf-8').read()):
+            out.append((float(m.group(1)), 'seed range start')); out.append((float(m.group(2)), 'seed range end'))
     # images seen
     out.append((1555 * 6511 / 1e6, 'sharp1 images seen M'))
     out.append((1195 * 6511 / 1e6, 'mirror2 images seen M'))

@@ -220,21 +220,24 @@ Section~\ref{subsec:ablations}.
 
 The starting point is the conditional StyleGAN2 variant of our previous
 work~\cite{shubitidze2026masks}, which generated an RGB image and a binary
-frame mask from a single forward pass and reached an FID of 6.13. A later
+frame mask from a single forward pass and reached an FID of 6.07. A later
 revision of that model added an eight-layer mapping network, adaptive
 discriminator augmentation~\cite{karras2020ada}, path-length regularisation, a
-feature-matching term and KID-based checkpoint selection. It produced sharper samples and the best domain metrics of that work.
-However, its FID rose to 38.47, and its colour-diversity score fell to 0.0567,
-against 0.0995 for the earlier run.
+feature-matching term and KID-based checkpoint selection. It raised the
+frame-symmetry score of that work (0.905 against 0.877), but its FID rose
+to 17.49, and random samples from it showed more repeated frame shapes than
+the earlier model produced. Under the colour-diversity score of that work it
+nevertheless scored slightly higher, 0.111 against 0.106.
 
-This comparison also shows why we do not reuse the earlier diversity
+This last comparison shows why we do not reuse the earlier diversity
 metrics. The earlier colour-diversity score is a mean pairwise distance
 computed on the generated images only. On the real corpus it is 0.0338, so
-both generators scored far above the real data. A score of this kind rewards
-spread, but it does not check whether the spread matches the real
-distribution, and a generator can raise it by producing colours the catalogue
-does not contain. The metrics of Section~\ref{sec:metrics} always compare
-against the real set.
+both generators scored far above the real data, and the model with the
+narrower output scored higher. A score of this kind rewards spread, but it
+does not check whether the spread matches the real distribution, and a
+generator can raise it by producing colours the catalogue does not contain.
+The metrics of Section~\ref{sec:metrics} always compare against the real
+set.
 
 Removing the mask branch, as the present scope requires, destabilised training
 badly, and three defects had to be corrected before a stable unconditional
@@ -246,7 +249,7 @@ of pixels toward $+1$, where $\tanh$ has vanishing gradient. We adopted the line
 generator~\cite{karras2020stylegan2}.
 
 The second defect was in the mapping network, and it is the one with a
-plausible bearing on the low colour diversity of the predecessor run. Eight
+plausible bearing on the repeated frame shapes of the predecessor run. Eight
 stacked default linear layers with LeakyReLU activations contract the signal
 at every step, because standard initialisation scales weights by the inverse
 square root of the fan-in without the equalized-learning-rate correction.
@@ -658,8 +661,10 @@ each, with generation seeds 42 and 0, and evaluated all four sets
 identically. The noise floor of each metric is the largest difference
 between the two seeds (Table~\ref{tab:noise}). No difference smaller than its floor is
 interpreted anywhere in this paper, in either direction. The floor was
-measured on one model and applied to all; differences within roughly
-twice the floor are called marginal when they appear. The floor covers
+measured on one model and applied to all; a second-seed check on the
+StyleGAN2-ADA baseline (Section~\ref{subsec:baseline_results}) gave
+differences of the same order. Differences within roughly twice the floor
+are called marginal when they appear. The floor covers
 generation-seed variation only. Training-run variation under a different
 seed was not measured, a limitation discussed in
 Section~\ref{subsec:limitations}.
@@ -982,6 +987,18 @@ official model gives on this dataset with its recommended settings and one
 stronger regularisation value; it does not show what it could reach with
 further tuning, which is what the ablations of this paper did for our own
 model.
+
+Two checks were run on the selected $\gamma = 10$ snapshot. Generating it
+again with a second seed (seeds 10,000 to 19,999) moved FID by 0.080,
+precision by 0.010, density by 0.024 and coverage by 0.007, somewhat more
+than the floor of Table~\ref{tab:noise}, which was measured on our own
+model; recall moved by 0.017, colour coverage not at all and hue entropy by
+0.008. None of these shifts changes the comparison above. Generating at
+$\psi = 1.2$ instead of 1.0 raised recall to 0.749 and colour coverage to
+0.449 at the cost of precision (0.763) and FID (7.07), the
+same trade-off that Table~\ref{tab:transfer} shows for our models. Even at
+that setting the baseline's colour coverage stays well below the real value
+and below both of our models at $\psi = 1.0$.
 
 \subsection{Generation-Protocol Transfer}
 \label{subsec:transfer}
