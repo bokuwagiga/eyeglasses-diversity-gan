@@ -1,0 +1,120 @@
+Follow-up on the StyleGAN2-ADA baseline: four small jobs, then one zip for
+me to copy to the writing machine. No training. Total GPU time is about one
+hour. Internet may stay on; nothing here downloads anything except git.
+
+PULL THE REPO FIRST and report the commit you are on.
+
+Rules, as before:
+- Do not modify or delete anything in the existing run folders
+  (00000-..., 00001-..., 00002-...) or in existing results/ folders. New
+  output goes into NEW folders only.
+- Use the same stylegan3 clone, environment and local compatibility patches
+  as before. No code changes to anything that already exists.
+- ASCII only in any file you create. Plain commit messages, one line, no
+  trailers of any kind.
+
+
+--- 1. Commit the baseline scripts ---
+
+The baseline scripts exist only on this machine and are not in git. Add and
+push them so the baseline is reproducible from the repository:
+
+    scripts/run_sg2ada_baseline.bat
+    scripts/run_sg2ada_gamma10.ps1
+    scripts/phase3_eval_sg2ada_*.bat            (both runs)
+    scripts/crop_sg2ada_generated.py
+    scripts/sg2ada_contact_sheet.py
+    scripts/build_baseline_results_table.py
+    scripts/collect_baseline_to_copy.py
+    plus any other script you wrote for the baseline that is still untracked
+    (check with git status).
+
+Before committing, open each file and check: no absolute paths (replace
+with relative ones or CLI arguments where the file is a .py; the .bat/.ps1
+may keep relative paths like ..\stylegan3), no non-ASCII characters, and
+no comments that read like notes to me or a log of our conversation. Keep
+the code itself unchanged. Commit message:
+"Add the StyleGAN2-ADA baseline scripts". Push. Report the commit hash and
+the list of files.
+
+
+--- 2. Second generation seed for the gamma-10 snapshot ---
+
+Purpose: a noise-floor measurement for the baseline itself (the paper's
+noise floor was measured on our own model). Same snapshot, different seeds,
+everything else identical to the published Phase 3:
+
+    cd stylegan3
+    python gen_images.py --network=../sg2ada_runs/00002-.../network-snapshot-001800.pkl
+        --seeds=10000-19999 --trunc=1 --noise-mode=const
+        --outdir=../sg2ada_gen/gamma10_snap001800_512_seedB
+    cd eyeglasses-diversity-gan
+    python scripts/crop_sg2ada_generated.py --src ../sg2ada_gen/gamma10_snap001800_512_seedB
+        --dst results/baseline_sg2ada_gamma10/snap001800_seedB/generated/images --snapshot <pkl>
+    python metrics/evaluate_diversity.py
+        --generated results/baseline_sg2ada_gamma10/snap001800_seedB/generated/images
+        --real data/source/images
+        --out results/baseline_sg2ada_gamma10/snap001800_seedB/diversity
+
+Use exactly the evaluate_diversity.py arguments of the published
+snap001800 run (see snap001800/generation_config.json and PROVENANCE.txt).
+Write a generation_config.json into snap001800_seedB/ in the same format as
+snap001800/generation_config.json (snapshot hash, seeds, exact commands).
+Report, for seedB against the published snap001800/diversity report, the
+absolute differences in FID, KID, precision, recall, density, coverage,
+ab_coverage, hue_entropy and the aligned symmetry median, next to the
+paper's noise floor (0.052, 0.008, 0.019, 0.016, 0.003, 0.016, 0.006,
+0.001 for FID, precision, recall, density, coverage, ab, hue, aligned
+symmetry).
+
+
+--- 3. Truncation variant for the gamma-10 snapshot ---
+
+Purpose: one protocol variant for the baseline, matching the psi = 1.2
+rows of our own models. Seeds 0-9999 as in the published run, only
+--trunc changes:
+
+    python gen_images.py --network=<same pkl> --seeds=0-9999 --trunc=1.2 --noise-mode=const
+        --outdir=../sg2ada_gen/gamma10_snap001800_512_trunc12
+    crop  -> results/baseline_sg2ada_gamma10/snap001800_trunc12/generated/images
+    evaluate_diversity.py -> results/baseline_sg2ada_gamma10/snap001800_trunc12/diversity
+
+Same arguments as in step 2 otherwise, generation_config.json again.
+Report FID, precision, recall and ab_coverage of this set next to the
+published psi = 1.0 values (4.699, 0.883, 0.6325, 0.4219).
+
+
+--- 4. Locate the thesis evaluation file ---
+
+The paper quotes two numbers of the thesis follow-up run gan_20260515
+(FID 38.47 and colour diversity 0.0567) whose source file is missing on
+the writing machine. Search this machine for it:
+
+    <thesis repo>\results\gan_20260515\metrics\evaluation_results.txt
+
+where <thesis repo> is the synthetic-eyeglasses-generator folder of the
+thesis (look under Desktop\Giga\vilniustech\Thesis\ first, then search the
+whole machine for evaluation_results.txt and for a folder named
+gan_20260515). If found, copy the whole gan_20260515\metrics\ folder
+(reports only, no checkpoints, no images) into the hand-off under
+thesis_gan_20260515_metrics\ and report the lines that contain the FID and
+the colour diversity value. Do not modify the thesis repo. If it is not
+found anywhere, say so and list what gan_20260515 folders do exist and
+what metric files they contain.
+
+
+--- 5. Hand-off zip ---
+
+Collect into to_copy_<YYYY-MM-DD>_baseline_followup\ :
+
+    results/baseline_sg2ada_gamma10/snap001800_seedB/   (diversity/, generation_config.json, logs; NO images)
+    results/baseline_sg2ada_gamma10/snap001800_trunc12/ (same)
+    thesis_gan_20260515_metrics/                        (step 4, if found)
+    scripts/  the files committed in step 1 (copy)
+    NOTES.txt  with: repo commit before and after step 1, the exact
+               commands run with start/end times, the comparison tables of
+               steps 2 and 3, the step 4 outcome
+    SHA256SUMS.txt  over every file in the folder
+
+Zip the folder to to_copy_<YYYY-MM-DD>_baseline_followup.zip next to it,
+print the zip path, its size and its SHA256, and the NOTES.txt content.
