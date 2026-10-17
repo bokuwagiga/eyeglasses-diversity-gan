@@ -189,7 +189,7 @@ Department of Electronic Systems, Vilnius Gediminas Technical University (VILNIU
 The training corpus consists of 6,511 frontal catalogue photographs of
 eyeglass frames, the same collection used in our earlier work on joint
 image--mask synthesis~\cite{shubitidze2026masks}. Each source image is square,
-between roughly 1350 and 1650 pixels on a side with a median of 1463, and
+between 1346 and 1662 pixels on a side with a median of 1463, and
 shows a single unworn frame, roughly centred, against a near-uniform light
 background. Images are centre-cropped
 to a 2:1 aspect ratio and resized to $256 \times 512$ pixels (height $\times$
@@ -206,9 +206,11 @@ the corpus is small for adversarial training at this resolution, and several
 of the failures reported below were caused by the discriminator memorising
 the training set.
 
-Two dataset-level interventions are used throughout. Horizontal flips are
-applied to the dataset rather than as a stochastic augmentation, doubling the
-effective corpus to roughly 13,000 images. Sampling is additionally weighted
+Two data-level settings are used throughout. Every training image is
+flipped horizontally with probability 0.5 when it is loaded, so the generator
+has to model both orientations. This differs from the flip inside ADA, which
+is applied only to the discriminator's input. One epoch is one pass over the
+6,511 images. Sampling is additionally weighted
 by inverse frequency over a $16 \times 16$ histogram of each frame's mean
 CIELAB $a^*b^*$ chromaticity, with exponent 0.5 and a weight cap of 4. The reason for this weighting and its effect are reported in
 Section~\ref{subsec:ablations}.
@@ -309,7 +311,7 @@ $5 \times 10^{-5}$ for the discriminator. Style mixing~\cite{karras2019stylegan}
 is applied with probability 0.9. An exponential moving average of the
 generator weights~\cite{karras2018progressive}, with decay 0.999, is used for
 all sampling and evaluation. The batch size is 16. On a single RTX~4090
-with 24~GB of memory an epoch takes approximately 180 to 190 seconds.
+with 24~GB of memory an epoch takes about three minutes (a median of 178 to 184 seconds across the runs).
 
 \subsection{Generation Protocol}
 \label{subsec:generation}
@@ -596,8 +598,8 @@ catalogue, and are those frames plausible designs rather than artifacts?
 The suite answers it with a calibrated nearest-neighbour construction in
 the same Inception feature space as the other measures. The reference set
 contains every real image together with its horizontal mirror, since
-training saw dataset-level flips and a mirrored copy of a catalogue frame
-is not a new design. The novelty threshold is set from the real set. For each real image we
+training used horizontal flips and a mirrored copy of a catalogue frame is
+not a new design. The novelty threshold is set from the real set. For each real image we
 compute the distance to its nearest other reference image, excluding its own
 mirror. The threshold $\tau$ is the 95th percentile of these distances, so
 only 5\% of real images are this far from the rest of the catalogue. A generated
@@ -690,8 +692,10 @@ Aligned symmetry & 0.001 \\
 \subsection{Training Ablations}
 \label{subsec:ablations}
 
-Eighteen models were trained in total. Table~\ref{tab:runs} lists every run
-with its change relative to its predecessor and its outcome, so that the
+Eighteen models of our own were trained in total; the two official
+StyleGAN2-ADA runs of Section~\ref{subsec:baseline} are reported separately
+in Section~\ref{subsec:baseline_results}. Table~\ref{tab:runs} lists every
+run with its change relative to its predecessor and its outcome, so that the
 results below can be read against the full experimental history rather than
 a curated subset. The FID column comes from a single evaluation sweep that
 re-generated and re-evaluated every usable checkpoint under the frozen
@@ -702,8 +706,8 @@ discriminator regularisation strength, colour-aware sampling, colour
 augmentation, and mirror coupling.
 
 \begin{table}[H]
-\caption{All training runs, in chronological order. Each change is relative
-to the run before it. FID is measured at the minimum-training-KID checkpoint
+\caption{All training runs of our own model, in chronological order. Each
+change is relative to the run before it. FID is measured at the minimum-training-KID checkpoint
 under the frozen generation protocol, in one common evaluation sweep; a dash
 marks a run with no valid measurement. mirror2 was later continued to epoch
 1,500 for the checkpoint study of Section~\ref{sec:checkpoints}.}
@@ -728,7 +732,7 @@ marks a run with no valid measurement. mirror2 was later continued to epoch
 11 & wide2 & 212 & 14.179 & \parbox[t]{4.0cm}{\raggedright G and D widths doubled} & \parbox[t]{3.9cm}{\raggedright diverged} \\[1pt]
 12 & wide\_g2d15 & 483 & 9.004 & \parbox[t]{4.0cm}{\raggedright G $\times 2$, D $\times 1.5$} & \parbox[t]{3.9cm}{\raggedright trained; colour result confounded (Section~\ref{sec:discussion})} \\[1pt]
 13 & sg2f & 800 & -- & \parbox[t]{4.0cm}{\raggedright five StyleGAN2-faithful changes at once} & \parbox[t]{3.9cm}{\raggedright mode collapse; measurement later invalidated (Section~\ref{sec:discussion})} \\[1pt]
-14 & rebalance3 & 600 & 7.168 & \parbox[t]{4.0cm}{\raggedright D blurpool, dataset x-flips, group minibatch std} & \parbox[t]{3.9cm}{\raggedright colour ADA re-enabled by an omitted launch flag} \\[1pt]
+14 & rebalance3 & 600 & 7.168 & \parbox[t]{4.0cm}{\raggedright D blurpool, horizontal flips, group minibatch std} & \parbox[t]{3.9cm}{\raggedright colour ADA re-enabled by an omitted launch flag} \\[1pt]
 15 & rebalance4 & 800 & 5.031 & \parbox[t]{4.0cm}{\raggedright colour ADA off restored} & \parbox[t]{3.9cm}{\raggedright artifact rates reach the real level} \\[1pt]
 16 & sharp1 & 1,600 & 3.583 & \parbox[t]{4.0cm}{\raggedright bicubic training resize (Section~\ref{subsec:resize})} & \parbox[t]{3.9cm}{\raggedright best fidelity of the project} \\[1pt]
 17 & mirror1 & 1,200 & 4.479 & \parbox[t]{4.0cm}{\raggedright flip-concatenation mirror coupling} & \parbox[t]{3.9cm}{\raggedright symmetry gained; pose and colour diversity lost} \\[1pt]
@@ -773,7 +777,7 @@ divcfg2 (colour ADA on) against nocolorada (off): coverage 0.168 against
 0.367 at an equal 400-epoch budget. The late-era accident repeats it at
 larger scale: rebalance3 shipped with colour ADA unintentionally re-enabled
 and reached coverage 0.176, and rebalance4, identical apart from the
-restored flag and 200 further epochs, reached 0.613. The missing-cell analysis shows where the colours were lost. under rebalance3 111 histogram cells holding
+restored flag and 200 further epochs, reached 0.613. The missing-cell analysis shows where the colours were lost: under rebalance3, 111 histogram cells holding
 928 real images (14.25\%) were missing, all of them at a chroma of 7.9 or more, while the
 near-neutral cells were all covered; under rebalance4 the misses fell to 9
 cells holding 10 images (0.15\%). We explain this with the augmentation leaking described for
@@ -789,9 +793,11 @@ times worse (0.0021 at epoch 460, 0.052 at epoch 595), and the recall of its
 final checkpoint fell to zero. We read this as the discriminator memorising
 the 6,511 real images, with the generator drifting away from the data
 distribution. With blurpool, rebalance4's margin
-over the same windows grew only from 1.9 to 4.4, and was 7.2 over epochs 700
-to 744; no runaway occurred in 800 epochs. Blurpool was introduced together
-with dataset x-flips and the group minibatch standard deviation layer, so
+over the same windows grew only from 1.9 to 4.4. It kept growing slowly and
+reached 8.1 over epochs 751 to 800, but its training KID kept improving to
+the end of the run (0.0014 at epoch 745), so no runaway occurred in 800
+epochs. Blurpool was introduced together
+with horizontal flips and the group minibatch standard deviation layer, so
 this comparison does not isolate it. We attribute the change mainly to the
 blur because it is the only one of the three that limits the
 high-frequency detail available to the discriminator.
@@ -810,8 +816,8 @@ have an axis offset of 3 pixels or more, against 41.9\% of real frames. Its
 appearance-symmetry flag rate of 0.30\%, against 2.01\% for real images, is
 a score better than real, which Section~\ref{subsec:artifacts} treats as a
 warning sign: the model over-mirrors. The mirror2 variant mirrors about a learned axis for each sample instead of
-the fixed centre. It recovers most of what mirror1 lost. It reaches the best
-recall of any run (0.705) and colour coverage of 0.613. Its aligned symmetry
+the fixed centre. It recovers most of what mirror1 lost. It reaches the highest
+recall of any model in this paper (0.705) and colour coverage of 0.613. Its aligned symmetry
 gap is only $-0.017$, and its appearance-symmetry flag rate of 1.06\% is
 closer to the real value. What
 it does not recover is yaw: its dispersion ratio is 0.45, essentially
@@ -872,8 +878,8 @@ dashed line in (b) is the real dataset's coverage at matched sample size.}
 
 We put forward two models, and neither dominates the other. sharp1 at
 1,600 epochs has the best FID (3.583), precision (0.918) and coverage
-(0.950) of the six. mirror2 has the best recall of any run (0.705) and the
-near-real aligned symmetry described above, at FID 4.064. Choosing between
+(0.950) of any model in this paper. mirror2 has the highest recall of any model in this paper (0.705) and
+the near-real aligned symmetry described above, at FID 4.064. Choosing between
 them means choosing a point on the front. Ranking the table by FID alone
 would rank it by fidelity, which is not the property this paper studies.
 The sharp1 trajectory shows the difference. From 800 to 1,200 to 1,600
@@ -967,9 +973,11 @@ models still reach FID 3.60 and 4.03, recall 0.618 and 0.687, and colour
 coverage 0.570 and 0.543 (Table~\ref{tab:transfer}), so the comparison does
 not depend on the generation protocol. Two limits apply. The baseline was
 trained at $512 \times 512$ on padded images rather than directly at
-$256 \times 512$, and it was trained for fewer images than our models,
-because with both values of $\gamma$ its FID stopped improving and then
-deteriorated well before our training length. The comparison shows what the
+$256 \times 512$. It also saw fewer training images: 1.8 million at its
+selected snapshot, against about 10.1 million for sharp1 (1,555 epochs of
+6,511 images) and 7.8 million for mirror2 (1,195 epochs). The shorter
+training was not a choice: with both values of $\gamma$ the baseline's FID
+stopped improving and then deteriorated well before those budgets. The comparison shows what the
 official model gives on this dataset with its recommended settings and one
 stronger regularisation value; it does not show what it could reach with
 further tuning, which is what the ablations of this paper did for our own
@@ -999,13 +1007,13 @@ sharp1 (1,600 ep) & layered $1.0/1.2$, pure & 3.583 & 0.918 & 0.626 & 0.590 \\
                   & $\psi = 1.0$, mixed     & 4.213 & 0.941 & 0.544 & 0.547 \\
                   & $\psi = 1.2$, mixed     & 3.605 & 0.899 & 0.647 & 0.551 \\
                   & $\psi = 1.0$, pure      & 3.602 & 0.921 & 0.618 & 0.570 \\
-                  & $\psi = 1.2$, pure      & 4.146 & 0.847 & 0.715 & 0.602 \\
+                  & $\psi = 1.2$, pure      & 4.145 & 0.847 & 0.715 & 0.602 \\
 \midrule
 mirror2           & layered $1.0/1.2$, pure & 4.064 & 0.869 & 0.705 & 0.613 \\
                   & $\psi = 0.85$, mixed    & 6.193 & 0.941 & 0.509 & 0.469 \\
                   & $\psi = 1.0$, mixed     & 4.592 & 0.913 & 0.613 & 0.504 \\
                   & $\psi = 1.2$, mixed     & 4.427 & 0.839 & 0.689 & 0.555 \\
-                  & $\psi = 1.0$, pure      & 4.033 & 0.877 & 0.687 & 0.543 \\
+                  & $\psi = 1.0$, pure      & 4.034 & 0.877 & 0.687 & 0.543 \\
                   & $\psi = 1.2$, pure      & 5.359 & 0.771 & 0.737 & 0.586 \\
 \bottomrule
 \end{tabular}

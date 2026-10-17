@@ -1,0 +1,25 @@
+Evidence that the stop rule of the gamma-10 baseline run was fixed before the
+run started.
+
+Stop rule (article/gpu_prompt_baseline_gamma10.txt, section 2):
+  a) stop when the lowest fid50k_full has not improved by more than 2% for
+     three consecutive snapshots (600 kimg);
+  b) stop when the latest fid50k_full exceeds 3x the lowest so far.
+
+Commit that added the file:
+  d24fcc5  2026-10-14T21:02:42+03:00  "Queue the second baseline run with
+  stronger regularisation"  (git log --format='%h %cI %s')
+
+Run start on the training machine:
+  2026-10-14 21:19:54  (first line of the run monitor log, folder
+  00002-stylegan2-catalogue_512-gpus1-batch16-gamma10-baseline-gamma10)
+  Smoke test of the script: 2026-10-14 21:07:38
+  (results/baseline_sg2ada_gamma10/prep/smoke_test_console_20261014_210738.txt)
+
+Outcome:
+  rule a triggered at snapshot 002400 (2,400 kimg); lowest fid50k_full 3.037
+  at snapshot 001800; FID values 2,000-2,400 kimg: 3.539, 6.748, 7.041.
+  Rule b did not trigger (maximum after the minimum 7.04 = 2.3x).
+
+The rule was committed 17 minutes before the run started and was not changed
+afterwards (no later commit touches the file).
