@@ -9,7 +9,7 @@ the result by FID. Our manuscript shows, on a catalogue of 6,511 eyeglass
 frame images, that FID does not reveal where such a generator loses
 diversity, and it gives measures that do. Colour augmentation removed the
 chromatic frames from the output, a mirror prior in the generator reduced the
-variety of viewing angles to 0.45 of the real value, and the checkpoint with
+variety of viewing angles to 0.54 of the real value, and the checkpoint with
 the lowest KID was not the most diverse one in six of sixteen runs. None of
 these effects was visible in FID.
 

@@ -63,7 +63,7 @@ def walk(obj, out, label):
 def collect_sources():
     vals = []
     for path in glob.glob(os.path.join(HERE, 'results', '**', '*.json'), recursive=True):
-        skip = ('scores_gen.json', 'symmetry_axis.json', 'sample_weights',
+        skip = ('scores_gen.json', 'pose_scores.json', 'axis_border', 'symmetry_axis.json', 'sample_weights',
                 'metadata', 'training_metrics.json', 'run_config',
                 'training_options', 'generation_config', 'checkpoint_info',
                 'run_config_history')
@@ -232,6 +232,19 @@ def derived(vals):
     for cfg in glob.glob(os.path.join(HERE, 'results', 'baseline_sg2ada_gamma10', 'snap001800_*', 'generation_config.json')):
         for m in re.finditer(r'(\d{4,6})-(\d{4,6})', io.open(cfg, encoding='utf-8').read()):
             out.append((float(m.group(1)), 'seed range start')); out.append((float(m.group(2)), 'seed range end'))
+    # pose values recomputed with the padded axis search (pose_v2 folders)
+    v2 = {}
+    for rp in glob.glob(os.path.join(HERE, 'results', '**', 'pose_v2', 'pose_report.json'), recursive=True):
+        d = json.load(open(rp))
+        v2[os.path.basename(os.path.dirname(os.path.dirname(rp)))] = d
+        out.append((d['aligned_p50_gen'] - d['aligned_p50_real'], rp + ' aligned gap'))
+        out.append((d['dispersion']['offset_std_ratio'], rp + ' offset ratio'))
+        out.append((d['dispersion']['offcentre_frac_gen'] * 100, rp + ' offcentre gen %'))
+        out.append((d['offcentre_frac_real'] * 100, rp + ' offcentre real %'))
+    pairs = [('ckpt_best', 'ckpt_best_seed0'), ('ckpt_last', 'ckpt_last_seed0')]
+    if all(a in v2 and b in v2 for a, b in pairs):
+        out.append((max(abs(v2[a]['aligned_p50_gen'] - v2[b]['aligned_p50_gen']) for a, b in pairs),
+                    'noise floor aligned symmetry v2'))
     # images seen
     out.append((1555 * 6511 / 1e6, 'sharp1 images seen M'))
     out.append((1195 * 6511 / 1e6, 'mirror2 images seen M'))
