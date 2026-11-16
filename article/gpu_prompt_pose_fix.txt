@@ -1,0 +1,92 @@
+Re-evaluation after a fix in the mirror-axis metric. No training and no
+generation unless a generated set is missing. CPU work, about two to three
+hours in total. Internet may stay on.
+
+PULL THE REPO FIRST and report the commit you are on.
+
+What changed: metrics/diversity_metrics.py, function mirror_axis_symmetry.
+It used to crop the silhouette to its bounding box plus 16 px and clip the
+crop at the image edge. Catalogue frames reach to within about 5 px of the
+edge, so the crop was clipped in every image, its centre moved, and the
+recovered axis offset contained a lateral-placement term. The function now
+zero-pads the silhouette before cropping. Everything that calls it has to be
+recomputed on the published generated sets: the pose section of the
+diversity reports and the artifact reports (which use the function for the
+aligned edge-symmetry check and store the offset per image).
+
+Rules, as before:
+- Do not modify or delete anything in existing results folders. New output
+  goes into NEW sub-folders only (names given below).
+- No code changes. If something does not run, stop and report.
+- ASCII only in any file you create.
+
+
+--- 1. Pose section ---
+
+For each set below run
+
+    python metrics/recompute_pose.py --real data/source/images
+        --generated <generated images folder of the set>
+        --out <eval folder of the set>/pose_v2
+
+Sets (use the same generated image folders as the published evaluations):
+
+    a) sharp1, 1,600-epoch evaluation   (results/sharp1/eval1600)
+    b) mirror1 evaluation               (results/mirror1/eval)
+    c) mirror2 evaluation               (results/mirror2/eval)
+    d) baseline gamma 3.2768, snapshot 001600   (results/baseline_sg2ada/snap001600)
+    e) baseline gamma 10, snapshot 001800       (results/baseline_sg2ada_gamma10/snap001800)
+    f) the four seed-noise sets used for the noise floor (two mirror2
+       checkpoints, generation seeds 42 and 0), if their images still exist
+
+The script caches the real-set values next to the first --out folder's
+parent; because the sets live in different folders the real set is
+recomputed a few times, which is fine (about 5 minutes each).
+
+If the generated images of a set no longer exist, regenerate them with the
+exact command recorded in that set's generation_config.json (same
+checkpoint, protocol and seed) into a new folder, say so in the notes, and
+use that folder.
+
+
+--- 2. Artifact reports ---
+
+For each set below run diagnose_artifacts.py with the same arguments as the
+published p2/p98 report of that set, but with a new output folder:
+
+    python metrics/diagnose_artifacts.py --real data/source/images
+        --generated <generated images folder> --out <eval folder>/artifacts_p2p98_v2
+        --lo-pct 2 --hi-pct 98
+
+Sets: a), b), c), d), e) from step 1, plus
+    g) sharp1, 800-epoch evaluation     (results/sharp1/eval)
+    h) rebalance4 evaluation            (results/rebalance4/eval)
+
+
+--- 3. Strict novelty rates ---
+
+Run metrics/strict_novelty.py exactly as it was run for
+results/_probes/novelty_strict_rates.json, but pointing every model at its
+new artifacts_p2p98_v2/scores_gen.json, and write
+results/_probes/novelty_strict_rates_v2.json. The novelty folders themselves
+are unchanged and are not recomputed.
+
+
+--- 4. Hand-off zip ---
+
+Collect into to_copy_<YYYY-MM-DD>_pose_fix\ , keeping the results/ folder
+structure:
+
+    every pose_v2/ folder (pose_report.json and pose_scores.json)
+    every artifacts_p2p98_v2/ folder (artifact_report.json, artifact_report.txt,
+        scores_gen.json; no images, no worst_*.png sheets)
+    results/_probes/novelty_strict_rates_v2.json
+    NOTES.txt with: repo commit, exact commands with start and end times,
+        any set that had to be regenerated, and one table with, per set, the
+        old and the new values of: aligned symmetry median (gen and real),
+        offset std ratio, fraction of images with |offset| >= 3 px, clean
+        rate, number of images with four or more flags
+    SHA256SUMS.txt over every file in the folder
+
+Zip the folder to to_copy_<YYYY-MM-DD>_pose_fix.zip, print the zip path, its
+size and SHA256, and the NOTES.txt content.
