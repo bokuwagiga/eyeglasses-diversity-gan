@@ -245,6 +245,12 @@ def derived(vals):
     if all(a in v2 and b in v2 for a, b in pairs):
         out.append((max(abs(v2[a]['aligned_p50_gen'] - v2[b]['aligned_p50_gen']) for a, b in pairs),
                     'noise floor aligned symmetry v2'))
+    # clean rates of the recomputed artifact reports
+    for rep_path in glob.glob(os.path.join(HERE, 'results', '**', 'artifacts_p2p98_v2', 'artifact_report.json'),
+                              recursive=True):
+        rr = json.load(open(rep_path))
+        out.append((rr['clean_fraction_gen'] * 100, rep_path + ' clean gen %'))
+        out.append((rr['clean_fraction_real'] * 100, rep_path + ' clean real %'))
     # images seen
     out.append((1555 * 6511 / 1e6, 'sharp1 images seen M'))
     out.append((1195 * 6511 / 1e6, 'mirror2 images seen M'))
