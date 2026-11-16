@@ -24,26 +24,54 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt  # noqa: E402
 
-# Default run set. rebalance3 is deliberately absent: at FID 7.17 /
-# ab_coverage 0.176 it is so far from the rest that including it squashes
-# every point of interest into the top of the colour panel. Add it back
-# with --runs when a "where the project started" figure is wanted.
+# Default run set, with the labels used in the article. The run names of the
+# experiment log are sharp1 (plain model), mirror2 (mirror-axis model),
+# mirror1 (fixed-mirror variant) and rebalance4 (bilinear training resize).
 DEFAULT_RUNS = [
-    'rebalance4=results/rebalance4/eval',
-    'sharp1 ep800=results/sharp1/eval',
-    'sharp1 ep1200=results/sharp1/eval1200',
-    'sharp1 ep1600=results/sharp1/eval1600',
-    'mirror1=results/mirror1/eval',
-    'mirror2=results/mirror2/eval',
+    'Bilinear resize=results/rebalance4/eval',
+    'Plain, 800 ep=results/sharp1/eval',
+    'Plain, 1,200 ep=results/sharp1/eval1200',
+    'Plain=results/sharp1/eval1600',
+    'Fixed mirror=results/mirror1/eval',
+    'Mirror axis=results/mirror2/eval',
+]
+DEFAULT_EXTRA = [
+    'Plain, psi 1.2=results/resweep/sharp1_p12_pure',
+    'Mirror axis, psi 1.2=results/resweep/mirror2_p12_pure',
+]
+DEFAULT_BASELINE = [
+    'StyleGAN2-ADA=results/baseline_sg2ada_gamma10/snap001800',
 ]
 
-# Models the article puts forward, labelled in bold; the rest are context.
-# sharp1 ep800 and ep1200 are deliberately not headline models even though
-# ep1200 sits on both fronts: sharp1 was one continued run and gan_train.py
-# overwrites checkpoint_best.pth, so their weights no longer exist. Their
-# numbers stand as a training trajectory, but nobody can generate from
-# them again, which is not something to put forward as a model.
-HEADLINE = {'sharp1 ep1600', 'mirror2'}
+# Models the article puts forward: filled markers, bold labels.
+HEADLINE = {'Plain', 'Mirror axis'}
+# One training run evaluated at three lengths, joined by a line.
+TRAJECTORY = ['Plain, 800 ep', 'Plain, 1,200 ep', 'Plain']
+# Protocol variants, joined to the model they were sampled from.
+PARENT = {'Plain, psi 1.2': 'Plain', 'Mirror axis, psi 1.2': 'Mirror axis'}
+# Text shown next to each point.
+TEXT = {'Plain, 800 ep': '800 ep', 'Plain, 1,200 ep': '1,200 ep',
+        'Plain': 'Plain (1,600 ep)', 'Plain, psi 1.2': r'$\psi = 1.2$',
+        'Mirror axis, psi 1.2': r'$\psi = 1.2$'}
+# Label offsets in points and horizontal alignment, per panel.
+OFFSETS = {
+    'recall': {
+        'Plain': (-8, -3, 'right'), 'Plain, 1,200 ep': (8, -3, 'left'),
+        'Plain, 800 ep': (8, -4, 'left'), 'Mirror axis': (-8, -9, 'right'),
+        'Plain, psi 1.2': (8, 2, 'left'), 'Mirror axis, psi 1.2': (8, -3, 'left'),
+        'Fixed mirror': (8, -3, 'left'), 'Bilinear resize': (-8, -3, 'right'),
+        'StyleGAN2-ADA': (8, -3, 'left'),
+    },
+    'ab_coverage': {
+        'Plain': (-2, -15, 'right'), 'Plain, 1,200 ep': (8, 3, 'left'),
+        'Plain, 800 ep': (8, 3, 'left'), 'Mirror axis': (-8, 5, 'right'),
+        'Plain, psi 1.2': (-8, -11, 'right'), 'Mirror axis, psi 1.2': (8, -12, 'left'),
+        'Fixed mirror': (8, -3, 'left'), 'Bilinear resize': (-8, -3, 'right'),
+        'StyleGAN2-ADA': (8, -3, 'left'),
+    },
+}
+BLUE = '#1f5fa8'
+ORANGE = '#d9730d'
 
 
 def find_report(run_dir):
@@ -88,95 +116,54 @@ def read_runs(specs, variant=False):
     return rows
 
 
-def pareto_front(rows, div_key):
-    """Labels that no other run beats on BOTH fidelity and this diversity axis."""
-    front = []
-    for r in rows:
-        if r[div_key] is None:
-            continue
-        dominated = any(o is not r
-                        and o[div_key] is not None
-                        and o['fid'] <= r['fid']
-                        and o[div_key] >= r[div_key]
-                        and (o['fid'] < r['fid'] or o[div_key] > r[div_key])
-                        for o in rows)
-        if not dominated:
-            front.append(r['label'])
-    return set(front)
-
-
-def panel(ax, rows, div_key, div_name, real_value=None):
-    front = pareto_front(rows, div_key)
-    pts = [r for r in rows if r[div_key] is not None]
-
-    # Pareto staircase, drawn first so markers sit on top.
-    chain = sorted([r for r in pts if r['label'] in front], key=lambda r: r['fid'])
-    if len(chain) > 1:
-        ax.plot([r['fid'] for r in chain], [r[div_key] for r in chain],
-                '-', color='0.6', lw=1.2, zorder=1,
-                label='Pareto front')
+def panel(ax, rows, div_key, div_name, tag, real_value=None):
+    pts = {r['label']: r for r in rows if r[div_key] is not None}
 
     if real_value is not None:
-        ax.axhline(real_value, ls='--', lw=1.0, color='crimson', zorder=0)
-        ax.text(0.99, real_value, 'real dataset', color='crimson',
-                fontsize=8, va='bottom', ha='right',
-                transform=ax.get_yaxis_transform())
+        ax.axhline(real_value, ls='--', lw=0.9, color='0.45', zorder=0)
+        ax.text(0.015, real_value, 'real catalogue', color='0.35', fontsize=8,
+                va='bottom', ha='left', transform=ax.get_yaxis_transform())
 
-    # One visual channel per meaning:
-    #   fill        -> on the Pareto front for this diversity axis
-    #   label weight-> model the article puts forward
-    best_fid = min(r['fid'] for r in pts)
-    for r in pts:
-        on_front = r['label'] in front
-        ax.scatter(r['fid'], r[div_key], s=70,
+    chain = [pts[k] for k in TRAJECTORY if k in pts]
+    if len(chain) > 1:
+        ax.plot([r['fid'] for r in chain], [r[div_key] for r in chain],
+                '-', color=BLUE, lw=1.0, alpha=0.55, zorder=1)
+    for child, parent in PARENT.items():
+        if child in pts and parent in pts:
+            ax.plot([pts[parent]['fid'], pts[child]['fid']],
+                    [pts[parent][div_key], pts[child][div_key]],
+                    ':', color=BLUE, lw=1.0, alpha=0.7, zorder=1)
+
+    for label, r in pts.items():
+        baseline = r.get('variant') == 'baseline'
+        headline = label in HEADLINE
+        colour = ORANGE if baseline else BLUE
+        ax.scatter(r['fid'], r[div_key], s=62 if headline or baseline else 40,
                    marker={'protocol': 's', 'baseline': '^'}.get(r.get('variant'), 'o'),
-                   facecolor='tab:blue' if on_front else 'white',
-                   edgecolor='tab:blue', linewidth=1.4, zorder=3)
-        headline = r['label'] in HEADLINE
-        # The best-FID point sits on the right spine; label it inwards.
-        left = r['fid'] == best_fid
-        ax.annotate(r['label'], (r['fid'], r[div_key]),
-                    textcoords='offset points',
-                    xytext=(-7, 6) if left else (7, 5),
-                    ha='right' if left else 'left',
-                    fontsize=8.5,
-                    fontweight='bold' if headline else 'normal',
-                    color='black' if headline else '0.4')
+                   facecolor=colour if headline or baseline else 'white',
+                   edgecolor=colour, linewidth=1.3, zorder=3)
+        dx, dy, ha = OFFSETS.get(div_key, {}).get(label, (8, 4, 'left'))
+        ax.annotate(TEXT.get(label, label), (r['fid'], r[div_key]),
+                    textcoords='offset points', xytext=(dx, dy), ha=ha,
+                    fontsize=8.5, fontweight='bold' if headline else 'normal',
+                    color=ORANGE if baseline else ('black' if headline else '0.3'))
 
-    ax.set_xlabel('FID  (lower is better)')
+    ax.set_xlabel('FID (better to the right)')
     ax.set_ylabel(div_name)
-    ax.invert_xaxis()          # better fidelity to the right
-    ax.margins(x=0.16, y=0.12)  # room for the point labels
-    ax.grid(alpha=0.25, lw=0.6)
-    ax.set_axisbelow(True)
+    ax.set_title(tag, fontsize=9.5, loc='left')
+    ax.invert_xaxis()
+    ax.margins(x=0.14, y=0.14)
+    for s in ('top', 'right'):
+        ax.spines[s].set_visible(False)
 
 
 def make_figure(rows, out_dir):
-    fig, axes = plt.subplots(1, 2, figsize=(12.5, 5.2))
-    panel(axes[0], rows, 'recall', 'Recall  (coverage of the real manifold)')
+    fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.3))
+    panel(axes[0], rows, 'recall', 'Recall', '(a)')
     real_ab = rows[0]['ab_coverage_real'] if rows else None
-    panel(axes[1], rows, 'ab_coverage', 'Colour coverage (CIELAB ab)',
+    panel(axes[1], rows, 'ab_coverage', 'Colour coverage', '(b)',
           real_value=real_ab)
-    axes[0].set_title('(a) Fidelity vs manifold coverage', fontsize=10)
-    axes[1].set_title('(b) Fidelity vs colour diversity', fontsize=10)
-    handles = [
-        plt.Line2D([], [], ls='-', color='0.6', lw=1.2, label='Pareto front'),
-        plt.Line2D([], [], ls='none', marker='o', mfc='tab:blue',
-                   mec='tab:blue', ms=7, label='on the front'),
-        plt.Line2D([], [], ls='none', marker='o', mfc='white',
-                   mec='tab:blue', ms=7, label='dominated'),
-        plt.Line2D([], [], ls='none', marker='s', mfc='white',
-                   mec='tab:blue', ms=7,
-                   label='same model, psi 1.2 pure protocol'),
-        plt.Line2D([], [], ls='none', marker='^', mfc='white',
-                   mec='tab:blue', ms=7,
-                   label='official StyleGAN2-ADA'),
-    ]
-    axes[0].legend(handles=handles, fontsize=8, loc='center left',
-                   framealpha=0.9)
-    fig.suptitle('Quality-diversity trade-off across generator variants',
-                 fontsize=12)
-    fig.tight_layout()
+    fig.tight_layout(w_pad=2.5)
     for ext in ('png', 'pdf'):
         p = out_dir / f'pareto.{ext}'
         fig.savefig(p, dpi=200 if ext == 'png' else None, bbox_inches='tight')
@@ -219,10 +206,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--runs', nargs='*', default=DEFAULT_RUNS,
                     help='label=path/to/eval_dir pairs')
-    ap.add_argument('--extra-runs', nargs='*', default=[],
+    ap.add_argument('--extra-runs', nargs='*', default=DEFAULT_EXTRA,
                     help='label=path pairs plotted as protocol variants '
                          '(square markers); excluded from the table')
-    ap.add_argument('--baseline-runs', nargs='*', default=[],
+    ap.add_argument('--baseline-runs', nargs='*', default=DEFAULT_BASELINE,
                     help='label=path pairs of external baselines (triangle '
                          'markers); excluded from the table')
     ap.add_argument('--out', default='article/figures')

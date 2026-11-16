@@ -125,7 +125,7 @@ Department of Electronic Systems, Vilnius Gediminas Technical University (VILNIU
 %(4) Conclusions: indicate the main conclusions or interpretations.
 %The abstract should be an objective representation of the article, it must not contain results which are not presented and substantiated in the main text and should not exaggerate the main conclusions.
 
-\abstract{[Abstract to be written once the results sections are final.]}
+\abstract{Synthetic images can enlarge the small product catalogues used to train eyewear vision models, but only if the generated set is as diverse as the real one. Standard measures such as the Fr\'echet inception distance (FID) do not show where a generative adversarial network (GAN) loses diversity. This study trains a StyleGAN2-based generator on 6,511 catalogue images of eyeglass frames in eighteen configurations and evaluates every generated set against the real set with a metric suite designed for this product: colour coverage, silhouette geometry, pose-aligned mirror symmetry, mirror-axis offset dispersion as a measure of pose variety, a calibrated realistic novelty rate, and structural artifact checks, all read against a measured noise floor. Diversity was lost through colour augmentation, strong discriminator regularisation, truncation, and a mirror prior, which reduced pose variety to 0.45 of the real value. Two models are put forward: one with FID 3.58 and real pose variety, and one with recall 0.705. Both cover the real colour range, whereas the official StyleGAN2-ADA reaches FID 4.70 and colour coverage 0.422 against 0.566 for real data. The lowest-KID checkpoint was not the most diverse in six of sixteen runs. The suite makes each loss visible and gives a basis for choosing generators and checkpoints for dataset generation.}
 
 
 
@@ -164,20 +164,122 @@ Department of Electronic Systems, Vilnius Gediminas Technical University (VILNIU
 \section{Introduction}
 \label{sec:intro}
 
-% Synthetic catalogue data for eyeglass frames, and why diversity rather
-% than fidelity alone is what makes a generated dataset useful downstream.
+Computer vision models for eyewear, such as detectors, segmentation models
+and virtual try-on systems, are trained on labelled images of eyeglass
+frames~\cite{giedra2025deploying,matuzevicius2024retrospective,matuzevicius2024diverse}.
+Product catalogues are the natural source of such images, but a catalogue
+holds only a few thousand frames, and its images are bound by third-party
+rights. Synthetic images can enlarge such a collection. Generated data have
+replaced or supplemented real data in face analysis~\cite{wood2021fakeit},
+medical imaging~\cite{fridadar2018liver} and image
+classification~\cite{besnier2020thisdataset}. Generative adversarial networks
+(GANs)~\cite{goodfellow2014gan} of the StyleGAN
+family~\cite{karras2019stylegan,karras2020stylegan2} remain a practical choice
+when only a few thousand training images are available~\cite{karras2020ada}.
 
-\subsection{Motivation}
+A generated dataset is useful only if it is diverse. A generator that
+produces sharp images of the same few frames adds little to the catalogue it
+was trained on. However, the standard evaluation does not measure this well.
+The Fr\'echet inception distance (FID)~\cite{heusel2017fid} combines fidelity
+and coverage in one number, and its limits are well
+documented~\cite{jayasumana2024rethinkingfid,stein2023exposingflaws}.
+Precision and recall~\cite{kynkaanniemi2019precision} separate the two, but
+they work in a feature space trained on ImageNet and do not show which
+property of an eyeglass frame is missing: its colour, its shape, its symmetry
+or its pose. Previous work~\cite{shubitidze2026masks} generated frame images
+together with segmentation masks and measured diversity with a spread
+statistic that has no real reference value;
+Section~\ref{subsec:base} shows that such a statistic can rise while the
+output becomes narrower. It is therefore not known where a GAN trained on a
+small product catalogue loses diversity, or how the loss can be detected.
 
-\subsection{Contributions}
+This paper studies that question for a catalogue of 6,511 frontal images of
+eyeglass frames (Figure~\ref{fig:overview}). A StyleGAN2-based generator is
+trained in eighteen configurations, and every generated set is compared with
+the real set by a suite of measures designed for this product. The paper
+makes four contributions. First, a diversity metric suite for eyeglass frames
+is proposed. It contains colour coverage and silhouette geometry measured
+against the real set, a pose-aligned mirror symmetry score, the dispersion of
+the mirror-axis offset as a measure of pose variety, a calibrated realistic
+novelty rate, and a structural artifact suite. Each new measure is validated
+on synthetic input, and all results are read against a measured noise floor.
+Second, the training and sampling choices that decide diversity are
+identified by ablation: the strength of discriminator regularisation, colour
+augmentation, rare-colour sampling, a mirror prior in the generator, and the
+truncation protocol. Third, two models on the quality--diversity front are
+put forward and compared with the official StyleGAN2-ADA under the same
+evaluation. Fourth, it is shown that keeping the checkpoint with the lowest
+kernel inception distance (KID) guards against collapse but does not select
+the most diverse checkpoint. The code, the trained generators and two
+generated datasets of 10,000 images each are public.
+
+\begin{figure}[H]
+\includegraphics[width=\textwidth]{images/overview.pdf}
+\caption{Overview of the study. The proposed generator and the official
+StyleGAN2-ADA baseline are trained on the same catalogue images, and every
+generated set is compared with the real set by the same metric suite.}
+\label{fig:overview}
+\end{figure}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Related Work}
 \label{sec:related}
 
-% StyleGAN2 / StyleGAN2-ADA; GAN evaluation (FID, KID, precision-recall,
-% density-coverage, Vendi, LPIPS); training GANs on limited data;
-% rejection sampling.
+StyleGAN~\cite{karras2019stylegan} and StyleGAN2~\cite{karras2020stylegan2}
+generate images from a learned style code and are the basis of the generator
+used here. With few training images the discriminator memorises the training
+set, and training diverges. Adaptive discriminator augmentation
+(ADA)~\cite{karras2020ada} and differentiable
+augmentation~\cite{zhao2020diffaugment} address this by augmenting the
+discriminator input. Other approaches regularise the
+discriminator~\cite{tseng2021regularizing} or use smaller
+networks~\cite{liu2021fastgan}. The $R_1$ gradient
+penalty~\cite{mescheder2018converge} is the main regulariser in this family.
+Its best weight depends on the dataset~\cite{karras2020ada}, and a study on
+300 medical face images found it decisive at that
+scale~\cite{mohanty2024rosacea}. StyleGAN2-ADA has also been adapted to other
+small domain datasets~\cite{yao2025ruralroad}, and GAN-based augmentation is
+used for industrial data in which defective samples are
+rare~\cite{yang2023precacyclegan}. Diffusion
+models~\cite{ho2020ddpm,rombach2022ldm} now give better image quality than
+GANs on large datasets~\cite{dhariwal2021diffusionbeatgans}. A GAN is kept
+here because the work continues an existing GAN
+pipeline~\cite{shubitidze2026masks}. The question studied, where diversity is
+lost and how to measure it, does not depend on the generator family, and the
+metric suite applies to any generated set.
+
+FID~\cite{heusel2017fid} and KID~\cite{binkowski2018kid} compare the
+distributions of real and generated Inception features. Precision and recall
+for generative
+models~\cite{sajjadi2018precisionrecall,kynkaanniemi2019precision} and density
+and coverage~\cite{naeem2020prdc} report fidelity and diversity separately,
+and the Vendi score~\cite{friedman2023vendi} measures diversity without a
+reference set. Surveys list the strengths and weaknesses of these
+measures~\cite{borji2022proscons,valdebenito2023metrics}. Two weaknesses
+matter for this paper. The measures depend on Inception
+features~\cite{jayasumana2024rethinkingfid,stein2023exposingflaws}, and
+results vary between training runs, so small differences are not
+reliable~\cite{lucic2018equal}. A separate line of work asks whether
+generated samples are copies of the training
+data~\cite{meehan2020threesample,alaa2022faithful}. The realistic novelty
+rate of Section~\ref{subsec:novelty} belongs to this line, but it counts the
+samples that are far from every training image and still inside the real
+manifold. Classification accuracy on generated
+data~\cite{ravuri2019cas} measures usefulness directly, but it needs a
+labelled downstream task.
+
+Generative models for eyewear have mostly been applied to faces: editing
+glasses on portraits~\cite{plesh2023glassesgan}, or removing them with
+training data rendered from 3D models~\cite{lyu2022portrait}. Datasets for
+eyeglasses detection have been built by labelling face
+images~\cite{matuzevicius2024diverse,matuzevicius2024retrospective}, and
+detection models have been optimised for low-power
+devices~\cite{giedra2025deploying}. Catalogue-style images of the frame
+alone, together with masks, were generated
+in~\cite{shubitidze2026masks}. To the authors' knowledge, no previous study
+measures the diversity of a generated dataset of eyeglass frames against the
+catalogue it was trained on.
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Materials and Methods}
@@ -187,7 +289,7 @@ Department of Electronic Systems, Vilnius Gediminas Technical University (VILNIU
 \label{subsec:data}
 
 The training corpus consists of 6,511 frontal catalogue photographs of
-eyeglass frames, the same collection used in our earlier work on joint
+eyeglass frames, the same collection used in earlier work on joint
 image--mask synthesis~\cite{shubitidze2026masks}. Each source image is square,
 between 1346 and 1662 pixels on a side with a median of 1463, and
 shows a single unworn frame, roughly centred, against a near-uniform light
@@ -218,8 +320,7 @@ Section~\ref{subsec:ablations}.
 \subsection{Base Model and Stabilisation}
 \label{subsec:base}
 
-The starting point is the conditional StyleGAN2 variant of our previous
-work~\cite{shubitidze2026masks}, which generated an RGB image and a binary
+The starting point is the conditional StyleGAN2 variant of previous work~\cite{shubitidze2026masks}, which generated an RGB image and a binary
 frame mask from a single forward pass and reached an FID of 6.13. A later
 revision of that model added an eight-layer mapping network, adaptive
 discriminator augmentation~\cite{karras2020ada}, path-length regularisation, a
@@ -229,8 +330,7 @@ to 17.49, and random samples from it showed more repeated frame shapes than
 the earlier model produced. Under the colour-diversity score of that work it
 nevertheless scored slightly higher, 0.111 against 0.106.
 
-This last comparison shows why we do not reuse the earlier diversity
-metrics. The earlier colour-diversity score is a mean pairwise distance
+This last comparison shows why the earlier diversity metrics are not reused here. The earlier colour-diversity score is a mean pairwise distance
 computed on the generated images only. On the real corpus it is 0.0338, so
 both generators scored far above the real data, and the model with the
 narrower output scored higher. A score of this kind rewards spread, but it
@@ -245,7 +345,7 @@ baseline existed. The first was the output head. The generator projected to
 RGB through a $\tanh$ nonlinearity, inherited from the mask-supervised model.
 Approximately 86\% of the pixels in a cropped and resized catalogue
 image are near-white background, so every loss term drives the large majority
-of pixels toward $+1$, where $\tanh$ has vanishing gradient. We adopted the linear RGB head of the official StyleGAN2
+of pixels toward $+1$, where $\tanh$ has vanishing gradient. It was replaced by the linear RGB head of the official StyleGAN2
 generator~\cite{karras2020stylegan2}.
 
 The second defect was in the mapping network, and it is the one with a
@@ -253,7 +353,7 @@ plausible bearing on the repeated frame shapes of the predecessor run. Eight
 stacked default linear layers with LeakyReLU activations contract the signal
 at every step, because standard initialisation scales weights by the inverse
 square root of the fan-in without the equalized-learning-rate correction.
-We measured this at initialisation on a batch of 4096 standard-normal
+This was measured at initialisation on a batch of 4096 standard-normal
 latents. The style codes have a standard deviation of 0.0184, against 1.0000
 for the latents. Most of the loss happens early: the standard deviation is
 0.583 after the first linear layer, 0.052 after the fourth, and about 0.028
@@ -273,8 +373,7 @@ distributions separate within a few epochs, the discriminator loss reaches
 exactly zero, and training stalls. Substituting the non-saturating logistic loss~\cite{goodfellow2014gan},
 the standard choice in StyleGAN2-ADA~\cite{karras2020stylegan2,karras2020ada},
 removed the stall.
-With the three corrections in place training was stable; we did not measure
-their contributions separately.
+With the three corrections in place training was stable; their contributions were not measured separately.
 
 \subsection{Training Configuration}
 \label{subsec:training}
@@ -293,7 +392,13 @@ correspondence between the left and right halves of the frame. Channel widths fo
 16$, giving 8.50~M generator parameters; the discriminator uses $16
 \rightarrow 32 \rightarrow 64 \rightarrow 128 \rightarrow 256 \rightarrow 256$
 for 2.50~M parameters. Both width multipliers were varied, and the outcome is
-reported in Section~\ref{subsec:negative}.
+reported in Section~\ref{subsec:ablations}.
+
+Two variants add a mirror prior to the generator. The fixed-mirror variant
+gives each position access to the horizontally flipped feature map at the
+$32 \times 64$ and $64 \times 128$ stages. The mirror-axis variant does the
+same about an axis that is learned for each sample instead of the fixed
+image centre. The generator without either is called the plain model.
 
 Training uses the non-saturating logistic loss with a lazy $R_1$ gradient
 penalty~\cite{mescheder2018converge} at $\gamma = 5$, applied every 16 steps.
@@ -304,7 +409,8 @@ real--fake pairing, and a VGG perceptual term~\cite{simonyan2015vgg} at
 weight 0.75 in which each generated image is paired with its nearest real
 image in the batch. The discriminator applies a group-wise
 minibatch standard deviation layer~\cite{karras2018progressive} over groups of
-four and blurs feature maps before average pooling. Adaptive discriminator
+four and blurs feature maps before average
+pooling~\cite{zhang2019shiftinvariant}. Adaptive discriminator
 augmentation uses horizontal flips, integer-pixel translation, brightness
 jitter, additive noise and cutout, with the probability ceiling at 0.95; hue
 and saturation augmentation is disabled, for reasons given in
@@ -319,93 +425,36 @@ with 24~GB of memory an epoch takes about three minutes (a median of 178 to 184 
 \subsection{Generation Protocol}
 \label{subsec:generation}
 
-Sampling has its own design choices, independent of training, and we swept them separately. We varied five things. The first is the truncation coefficient $\psi$. The
-second is layered truncation, where the coarse and fine synthesis stages get
-different coefficients. The third is whether each image comes from a single
-latent or from a blend of several style codes. The fourth is truncation
-toward $k$ cluster centres instead of the global style mean. The fifth is
-rejection sampling, either by manifold precision or by the artifact suite of
-Section~\ref{subsec:artifacts}. Nine protocols built from
-these levers were evaluated on a common checkpoint
-(Table~\ref{tab:protocols}), each generating 10,000 images at a fixed seed.
+Sampling has its own design choices, independent of training. Five were
+varied. The first is the truncation coefficient $\psi$. The second is layered
+truncation, where the coarse and fine synthesis stages get different
+coefficients. The third is whether each image comes from a single latent or
+from a blend of several style codes. The fourth is truncation toward $k$
+cluster centres instead of the global style mean. The fifth is rejection
+sampling, either by manifold precision or by the artifact suite of
+Section~\ref{subsec:artifacts}. Nine protocols built from these choices were
+compared on one intermediate checkpoint, each generating 10,000 images at a
+fixed seed (Section~\ref{subsec:transfer}).
 
-\begin{table}[H]
-\caption{Generation protocols evaluated on a common checkpoint. Yield is the
-fraction of the 10,000 generated images surviving rejection sampling.
-Truncation is applied toward the style mean; ``pure'' denotes a single latent
-per image and ``mixed'' the blended default; ``layered'' applies $\psi = 1.0$
-to the three coarse stages and $\psi = 1.2$ to the three fine stages.}
-\label{tab:protocols}
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{lccccccc}
-\toprule
-\textbf{Protocol} & \textbf{FID} $\downarrow$ & \textbf{Prec.} &
-\textbf{Dens.} & \textbf{Recall} & \textbf{$a^*b^*$ cov.} &
-\textbf{Vendi} & \textbf{Yield} \\
-\midrule
-$\psi = 0.85$, mixed                 & 13.09 & 0.963 & 2.03 & 0.103 & 0.219 & 2.29 & 100\% \\
-$\psi = 1.0$, mixed                  & 11.25 & 0.924 & 1.65 & 0.154 & 0.270 & 2.52 & 100\% \\
-$\psi = 1.2$, mixed                  & 10.46 & 0.844 & 1.20 & 0.235 & 0.352 & 2.83 & 100\% \\
-$\psi = 1.0$, pure                   & 10.41 & 0.890 & 1.32 & 0.189 & 0.313 & 2.70 & 100\% \\
-$\psi = 1.2$, pure                   & 10.76 & 0.765 & 0.87 & 0.324 & 0.395 & 3.05 & 100\% \\
-$\psi = 1.2$, pure, precision filter & 10.35 & 0.923 & 1.15 & 0.250 & 0.355 & 2.85 & 69.7\% \\
-Layered $1.0/1.2$, pure              & 10.20 & 0.879 & 1.27 & 0.212 & 0.367 & 2.74 & 100\% \\
-Layered, precision filter            & 10.51 & 0.957 & 1.46 & 0.169 & 0.344 & 2.65 & 82.9\% \\
-Layered, $k = 8$ centres             & 10.22 & 0.879 & 1.28 & 0.203 & 0.352 & 2.73 & 100\% \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Three findings follow from this sweep, and one of them runs against common
-practice. In this domain, truncation below $\psi = 1$ is not a trade-off but a plain
-loss. Moving from 0.85 to 1.0 to 1.2 improves FID and every diversity measure
-at the same time. The low-$\psi$ settings normally used to improve image
-quality~\cite{brock2019biggan,karras2019stylegan} are therefore not on the
-front at all.
-Precision does rise as $\psi$ falls, but the density column shows that this
-is not better fidelity. At $\psi = 0.85$ density reaches 2.03, which means
-the samples crowd into the densest regions of the real distribution. FID,
-which accounts for both fidelity and coverage, gets worse.
-Synthesising each image from a single latent beats blending several style
-codes at matched $\psi$ on nearly every axis. The reason is simple:
-averaging style codes pulls every sample toward the population mean. The
-blended scheme was nevertheless the default we inherited from our previous
-work.
-Layered truncation gives the best compromise. It truncates only the three
-coarse stages, which control silhouette and proportions, and leaves the
-three fine stages, which control colour and texture, untruncated. This gives
-the lowest FID at full yield. It also has higher colour coverage than the
-filtered $\psi = 1.2$ set, because the stages that control colour are not
-truncated.
-
-Two levers brought no benefit. Truncation toward eight centres differs from the single-centre layered
-protocol by 0.02 FID, which is within the measurement noise of
-Section~\ref{subsec:noise}. At $\psi \geq 1$ truncation is too weak for the
-choice of centre to matter. A precision filter added to the layered protocol raised precision but
-lowered recall and colour coverage, so it moved along the trade-off rather
-than improving it. Filtering is examined further in
-Section~\ref{subsec:filtering}.
-
-The layered protocol was then fixed and used for every model comparison in
-this paper. It uses $\psi = 1.0$ for the three coarse stages and $\psi = 1.2$
-for the three fine stages, a single latent per image, 10,000 images, and
-generation seed 42. Because the protocol was selected on an intermediate checkpoint with FID
-10.2, we repeated the comparison on the two final models
-(Section~\ref{subsec:transfer}).
+The protocol selected there, called layered, was then fixed and used for
+every model comparison in this paper. It uses $\psi = 1.0$ for the three
+coarse stages, which control silhouette and proportions, and $\psi = 1.2$ for
+the three fine stages, which control colour and texture, with a single latent
+per image, 10,000 images, and generation seed 42.
 
 \subsection{StyleGAN2-ADA Baseline}
 \label{subsec:baseline}
 
-To compare against an established model, we trained the official
-StyleGAN2 with adaptive discriminator
-augmentation~\cite{karras2020stylegan2,karras2020ada} on the same images,
-using NVIDIA's StyleGAN3 code with its StyleGAN2 configuration. The official
+For comparison with an established model, the official StyleGAN2 with
+adaptive discriminator augmentation~\cite{karras2020stylegan2,karras2020ada}
+was trained on the same images, using NVIDIA's StyleGAN3
+code~\cite{karras2021aliasfree} with its StyleGAN2 configuration. The official
 code trains only on square images, so each $256 \times 512$ training image
 was padded to $512 \times 512$ with 128 rows at the top and bottom in its
 own background colour. The generated images were cropped back to the
 central $256 \times 512$ band before evaluation. Training used batch 16,
 horizontal flips, and ADA with the official set of augmentations, which
-includes hue and saturation changes. We trained two runs that differ only
+includes hue and saturation changes. Two runs were trained that differ only
 in the $R_1$ weight: the heuristic of the ADA paper,
 $\gamma = 0.0002 \cdot 512^2 / 16 = 3.28$, and $\gamma = 10$. FID on 50,000
 generated images, the official metric, was computed every 200 kimg, and the
@@ -417,7 +466,7 @@ was interrupted once at 1,800 kimg and resumed from its last snapshot. A few
 small changes were needed to run the official code with current versions of
 PyTorch and SciPy; none of them affects training or the FID computation.
 Images were generated with $\psi = 1.0$, the official default, and
-evaluated with exactly the same scripts and settings as our models.
+evaluated with exactly the same scripts and settings as the proposed models.
 
 \subsection{Reproducibility}
 \label{subsec:reproducibility}
@@ -427,13 +476,13 @@ cuDNN autotuning and non-deterministic GPU kernels were not disabled. Also,
 each resumed run re-seeds the random number generator instead of restoring
 its state, so the batch order after a resume differs from that of an
 uninterrupted run.
-What we provide is the code, the configurations and the trained weights of
-the two final models, with fixed seeds. Run-to-run variation under a
+What is provided is the code, the configurations and the trained weights of
+the two final models, with fixed seeds. In the code repository and the data
+archive the plain model is named sharp1 and the mirror-axis model mirror2. Run-to-run variation under a
 different training seed was not measured. This would require repeating a
 full training run, roughly 60 GPU-hours for one model.
 
-Long runs were trained in several resumed segments. The 1,600-epoch sharp1
-run, for example, consists of six segments of 300, 200, 300, 357, 43 and 400
+Long runs were trained in several resumed segments. The 1,600-epoch run of the plain model, for example, consists of six segments of 300, 200, 300, 357, 43 and 400
 epochs, 83.9 hours in total. Epochs are reported as the number of epochs
 completed; the checkpoint files store a zero-based index one lower.
 
@@ -448,7 +497,7 @@ involved, and the same code evaluates real and generated sets identically.
 Second, no diversity statistic is reported without its value on the real
 corpus. Section~\ref{subsec:base} showed what happens otherwise: a spread
 statistic with no real reference can be improved indefinitely by drifting
-off-distribution, and the predecessor metrics rewarded exactly that.
+off-distribution, and the earlier metrics rewarded exactly that.
 Third, each new metric is tested on synthetic images with a known answer
 before it is used. Section~\ref{subsec:aligned_sym} shows why this matters:
 a symmetry score can respond more strongly to camera pose than to the defect
@@ -487,12 +536,12 @@ pairwise distance alone cannot see. Colour-gamut coverage
 histogram of per-image mean colour over $a^*, b^* \in [-40, 40]$.
 Occupancy counts grow with sample size, so this quantity is only ever
 compared between sets of equal size; all values in this paper use matched
-5,000-image subsamples. The bin count is a free parameter, and we verified
-that the ordering of the sets compared in this paper is unchanged at
+5,000-image subsamples. The bin count is a free parameter; the
+ordering of the sets compared in this paper is unchanged at
 $12 \times 12$, $16 \times 16$ and $20 \times 20$ resolution. A generated
 set can exceed the real coverage by placing frame colours in cells where
-the catalogue has no examples; we therefore read ab~coverage as a distance
-to the real value, not as a score to maximise.
+the catalogue has no examples; ab~coverage is therefore read as a
+distance to the real value, not as a score to maximise.
 
 Feature-space measures use Inception-v3 pool3
 embeddings~\cite{szegedy2016inception}. FID~\cite{heusel2017fid} and KID~\cite{binkowski2018kid} (subset size 1,000)
@@ -505,7 +554,7 @@ neighbours; recall and coverage are the primary distribution-level
 diversity measures. The Vendi score~\cite{friedman2023vendi} is computed
 on 2,000-image subsets; because Inception features spread very little on
 a single narrow product category, its absolute value is small even for
-the real set, and we report only the generated-to-real ratio. A
+the real set, and only the generated-to-real ratio is reported. A
 memorisation check compares the mean distance from each generated image
 to its nearest real neighbour with the same statistic between real images;
 a ratio well below one flags copying. Finally, perceptual diversity is the mean pairwise
@@ -517,7 +566,7 @@ generated set, reported against the same statistic within the real set.
 
 Eyeglass frames are bilaterally symmetric objects, so a symmetry defect is
 a structural failure worth measuring. The obvious construction, and the
-one we used first, mirrors the silhouette's boundary band about
+one used first, mirrors the silhouette's boundary band about
 the vertical centre line of its bounding box and scores the overlap. That
 axis, however, is the frame's true symmetry axis only when the photograph
 is perfectly fronto-parallel, and catalogue photographs are not: measured
@@ -527,8 +576,8 @@ with shape.
 
 The pose-aligned version searches over horizontal axis shifts of up to
 $\pm 8$ pixels and rotations of up to $\pm 3$ degrees, and keeps the best
-boundary-band intersection-over-union. Table~\ref{tab:symval} shows the
-validation on synthetic silhouettes with known ground truth. A tilt of two degrees costs a perfectly symmetric frame
+boundary-band intersection-over-union. Table~\ref{tab:symval} in Appendix~\ref{app:runs} shows the validation on
+synthetic silhouettes with known ground truth. A tilt of two degrees costs a perfectly symmetric frame
 0.64 of the fixed-axis score but only 0.007 of the aligned score, while a
 genuine asymmetry, one temple foreshortened by a quarter, costs 0.57 fixed
 and 0.40 aligned. Alignment removes 98.9\% of the pose penalty and
@@ -537,34 +586,8 @@ shape, the fixed score mostly to pose. The search costs about 29~ms per
 image on a desktop CPU, roughly five minutes for a 10,000-image set. One
 validity condition emerged from the same test: the implementation pads the
 bounding box by 16 pixels and clips at the canvas edge, so silhouettes
-closer than that to the border are measured with a biased axis. Catalogue
-framing leaves margins several times wider, but the condition is stated
-here because the probe found it.
+closer than that to the border are measured with a biased axis. Catalogue framing leaves margins several times wider.
 
-\begin{table}[H]
-\caption{Validation of the symmetry metrics on synthetic silhouettes with
-known ground truth. Fixed is the boundary-band mirror IoU about the
-bounding-box centre; aligned is the same score after the axis search;
-offset is the recovered axis shift. Translations leave every value
-unchanged, so lateral placement is invisible to the offset by
-construction.}
-\label{tab:symval}
-\begin{tabular}{lccc}
-\toprule
-\textbf{Silhouette} & \textbf{Fixed IoU} & \textbf{Aligned IoU} &
-\textbf{Offset (px)} \\
-\midrule
-Perfectly symmetric                   & 0.986 & 0.986 & 0 \\
-Tilted 2$^{\circ}$                    & 0.346 & 0.979 & $+2$ \\
-One temple 10\% shorter               & 0.551 & 0.973 & $+5$ \\
-One temple 25\% shorter               & 0.416 & 0.588 & $+8$ \\
-Tilted 2$^{\circ}$, temple 25\% shorter & 0.296 & 0.504 & $+8$ \\
-Translated $+12$ px                   & 0.986 & 0.986 & 0 \\
-Translated $-20$ px                   & 0.986 & 0.986 & 0 \\
-Temple 25\% shorter, translated $+12$ px & 0.416 & 0.588 & $+8$ \\
-\bottomrule
-\end{tabular}
-\end{table}
 
 \subsection{Mirror-Axis Offset Dispersion}
 \label{subsec:yaw}
@@ -586,10 +609,20 @@ plainly visible to the offset.
 The set-level statistic reports the standard deviation and interquartile
 range of the offset, the fraction of images with an offset of three or
 more pixels, and the ratio of the generated standard deviation to the
-real one. A ratio well below one means the generator pins every frame
-into a canonically frontal pose, a collapse of pose variety that, as
-Section~\ref{subsec:ablations} shows, none of FID, KID, LPIPS or
-ab~coverage detects.
+real one. A ratio well below one means the generator pins every frame into a canonically frontal pose. FID, KID, LPIPS and
+ab~coverage do not measure pose, so they cannot detect this collapse.
+Figure~\ref{fig:symaxis} shows the axis on two real images and the offset
+distributions of the real set and of three generated sets.
+
+\begin{figure}[H]
+\includegraphics[width=\textwidth]{images/symmetry_axis.pdf}
+\caption{Mirror-axis offset. (\textbf{a},\textbf{b}) Two real catalogue images with the
+bounding-box centre (dashed) and the recovered mirror axis (solid).
+(\textbf{c}--\textbf{e}) Distribution of the offset in the real set (grey bars, 5,000 images) and in
+three generated sets (line, 10,000 images each). The ratio is the standard
+deviation of the generated offsets divided by that of the real offsets.}
+\label{fig:symaxis}
+\end{figure}
 
 \subsection{Realistic Novelty Rate}
 \label{subsec:novelty}
@@ -602,8 +635,8 @@ The suite answers it with a calibrated nearest-neighbour construction in
 the same Inception feature space as the other measures. The reference set
 contains every real image together with its horizontal mirror, since
 training used horizontal flips and a mirrored copy of a catalogue frame is
-not a new design. The novelty threshold is set from the real set. For each real image we
-compute the distance to its nearest other reference image, excluding its own
+not a new design. The novelty threshold is set from the real set. For each real image the
+distance to its nearest other reference image is computed, excluding its own
 mirror. The threshold $\tau$ is the 95th percentile of these distances, so
 only 5\% of real images are this far from the rest of the catalogue. A generated
 image is novel if its nearest-reference distance exceeds $\tau$, and
@@ -656,8 +689,8 @@ on those classes is measurement noise rather than generation failure.
 \subsection{Measurement Noise Floor}
 \label{subsec:noise}
 
-To know which differences are real, we generated two checkpoints twice
-each, with generation seeds 42 and 0, and evaluated all four sets
+To know which differences are real, two checkpoints were each generated
+twice, with generation seeds 42 and 0, and all four sets were evaluated
 identically. The noise floor of each metric is the largest difference
 between the two seeds (Table~\ref{tab:noise}). No difference smaller than its floor is
 interpreted anywhere in this paper, in either direction. The floor was
@@ -667,7 +700,7 @@ differences of the same order. Differences within roughly twice the floor
 are called marginal when they appear. The floor covers
 generation-seed variation only. Training-run variation under a different
 seed was not measured, a limitation discussed in
-Section~\ref{subsec:limitations}.
+Section~\ref{sec:discussion}.
 
 \begin{table}[H]
 \caption{Measurement noise floor: the maximum absolute difference between
@@ -697,156 +730,104 @@ Aligned symmetry & 0.001 \\
 \subsection{Training Ablations}
 \label{subsec:ablations}
 
-Eighteen models of our own were trained in total; the two official
-StyleGAN2-ADA runs of Section~\ref{subsec:baseline} are reported separately
-in Section~\ref{subsec:baseline_results}. Table~\ref{tab:runs} lists every
-run with its change relative to its predecessor and its outcome, so that the
-results below can be read against the full experimental history rather than
-a curated subset. The FID column comes from a single evaluation sweep that
-re-generated and re-evaluated every usable checkpoint under the frozen
-protocol, so its values are mutually comparable. Four runs exist mainly as
-negative results and are treated in Section~\ref{sec:discussion}; this
-subsection reports the four mechanisms that shaped the final models:
-discriminator regularisation strength, colour-aware sampling, colour
-augmentation, and mirror coupling.
+Eighteen configurations of the proposed generator were trained.
+Table~\ref{tab:runs} in Appendix~\ref{app:runs} lists every run with its
+change and its outcome, and runs are referred to below by their number in
+that table. Its FID column comes from a single evaluation sweep under the
+frozen protocol, so the values are mutually comparable.
 
-\begin{table}[H]
-\caption{All training runs of our own model, in chronological order. Each
-change is relative to the run before it. FID is measured at the minimum-training-KID checkpoint
-under the frozen generation protocol, in one common evaluation sweep; a dash
-marks a run with no valid measurement. mirror2 was later continued to epoch
-1,500 for the checkpoint study of Section~\ref{sec:checkpoints}.}
-\label{tab:runs}
-\small
-\setlength{\tabcolsep}{3.5pt}
-\begin{tabular}{llccll}
-\toprule
-\textbf{\#} & \textbf{Run} & \textbf{Epochs} & \textbf{FID} &
-\textbf{Change} & \textbf{Outcome} \\
-\midrule
-1 & baseline & 145 & 25.805 & \parbox[t]{4.0cm}{\raggedright first stable unconditional run, $R_1$ $\gamma = 2$} & \parbox[t]{3.9cm}{\raggedright D overfits; training KID minimum at epoch 115} \\[1pt]
-2 & r1gamma5 & 400 & 13.620 & \parbox[t]{4.0cm}{\raggedright $\gamma = 5$} & \parbox[t]{3.9cm}{\raggedright best of the $\gamma$ sweep} \\[1pt]
-3 & r1gamma10 & 400 & 22.202 & \parbox[t]{4.0cm}{\raggedright $\gamma = 10$} & \parbox[t]{3.9cm}{\raggedright over-regularised; worst diversity of the sweep} \\[1pt]
-4 & divcfg & 152 & 33.674 & \parbox[t]{4.0cm}{\raggedright perceptual loss removed} & \parbox[t]{3.9cm}{\raggedright quality collapse} \\[1pt]
-5 & divcfg2 & 400 & 11.799 & \parbox[t]{4.0cm}{\raggedright nearest-real perceptual pairing; colour ADA on} & \parbox[t]{3.9cm}{\raggedright fidelity up, colour coverage halved} \\[1pt]
-6 & nocolorada & 400 & 10.204 & \parbox[t]{4.0cm}{\raggedright colour ADA off} & \parbox[t]{3.9cm}{\raggedright generation protocol selected here} \\[1pt]
-7 & ppl4 & 400 & 8.902 & \parbox[t]{4.0cm}{\raggedright path-length weight 2 to 4} & \parbox[t]{3.9cm}{\raggedright collapsed after epoch 310} \\[1pt]
-8 & rebalance & 400 & 18.464 & \parbox[t]{4.0cm}{\raggedright binary $\times 8/\times 4$ rare-colour oversampling} & \parbox[t]{3.9cm}{\raggedright colour overshoot} \\[1pt]
-9 & rebalance2 & 600 & 7.869 & \parbox[t]{4.0cm}{\raggedright inverse-frequency oversampling} & \parbox[t]{3.9cm}{\raggedright D memorisation runaway after epoch 460} \\[1pt]
-10 & edgeD & 600 & 7.868 & \parbox[t]{4.0cm}{\raggedright Sobel edge channel in D} & \parbox[t]{3.9cm}{\raggedright null result; G silently frozen for its final 20 epochs (Section~\ref{sec:discussion})} \\[1pt]
-11 & wide2 & 212 & 14.179 & \parbox[t]{4.0cm}{\raggedright G and D widths doubled} & \parbox[t]{3.9cm}{\raggedright diverged} \\[1pt]
-12 & wide\_g2d15 & 483 & 9.004 & \parbox[t]{4.0cm}{\raggedright G $\times 2$, D $\times 1.5$} & \parbox[t]{3.9cm}{\raggedright trained; colour result confounded (Section~\ref{sec:discussion})} \\[1pt]
-13 & sg2f & 800 & -- & \parbox[t]{4.0cm}{\raggedright five StyleGAN2-faithful changes at once} & \parbox[t]{3.9cm}{\raggedright mode collapse; measurement later invalidated (Section~\ref{sec:discussion})} \\[1pt]
-14 & rebalance3 & 600 & 7.168 & \parbox[t]{4.0cm}{\raggedright D blurpool, horizontal flips, group minibatch std} & \parbox[t]{3.9cm}{\raggedright colour ADA re-enabled by an omitted launch flag} \\[1pt]
-15 & rebalance4 & 800 & 5.031 & \parbox[t]{4.0cm}{\raggedright colour ADA off restored} & \parbox[t]{3.9cm}{\raggedright artifact rates reach the real level} \\[1pt]
-16 & sharp1 & 1,600 & 3.583 & \parbox[t]{4.0cm}{\raggedright bicubic training resize (Section~\ref{subsec:resize})} & \parbox[t]{3.9cm}{\raggedright best fidelity of the project} \\[1pt]
-17 & mirror1 & 1,200 & 4.479 & \parbox[t]{4.0cm}{\raggedright flip-concatenation mirror coupling} & \parbox[t]{3.9cm}{\raggedright symmetry gained; pose and colour diversity lost} \\[1pt]
-18 & mirror2 & 1,200 & 4.064 & \parbox[t]{4.0cm}{\raggedright learned per-sample mirror axis} & \parbox[t]{3.9cm}{\raggedright best recall; headline model} \\[1pt]
-\bottomrule
-\end{tabular}
-\end{table}
+Runs 1 to 3 vary the $R_1$ weight. At $\gamma = 2$ the discriminator
+overfits, and training KID reaches its minimum at epoch 115. At $\gamma = 5$
+the minimum is almost three times lower and comes at epoch 190. At
+$\gamma = 10$ training is stable but slow: the minimum comes only at epoch
+370 and is more than twice the $\gamma = 5$ value. The strongest
+regularisation also gave the least diverse model. Against $\gamma = 5$ it
+loses on FID (22.20 versus 13.62), recall (0.029 versus 0.104), colour
+coverage (0.211 versus 0.305) and coverage (0.451 versus 0.690), every gap
+far beyond the noise floor.
 
-The $R_1$ sweep brackets the discriminator regularisation optimum from both
-sides. At $\gamma = 2$ the discriminator overfits, and training KID reaches its
-minimum at epoch 115. At $\gamma = 5$ the minimum is almost three times lower
-and comes at epoch 190. At $\gamma = 10$ training is stable but slow: the
-minimum comes only at epoch 370 and is more than twice the $\gamma = 5$
-value. The interesting result is on the diversity side. If a weaker
-discriminator allowed the generator more freedom, $\gamma = 10$ should be
-the most diverse setting. It is the least: against $\gamma = 5$ it loses on
-FID (22.20 versus 13.62), recall (0.029 versus 0.104), colour coverage
-(0.211 versus 0.305) and coverage (0.451 versus 0.690), every gap far
-beyond the noise floor. Diversity did not come from weakening the
-discriminator but from a discriminator strong enough to demand coverage
-without memorising.
+The colour-coverage gap of the mid-project models was a rare-mode problem:
+the missing $a^*b^*$ histogram cells contained only 153 of the 6,511 real
+images (2.35\%), dominated by purple and violet acetate frames.
+Inverse-frequency oversampling (Section~\ref{subsec:data}), which makes
+boosted images 3.7\% of training draws, raised colour coverage from 0.422 to
+0.566 while FID improved from 8.90 to 7.80 (runs 7 and 9). The two runs
+differ only in the sampling weights, although their selected checkpoints are
+from epochs 310 and 460. A stronger version, a fixed $\times 8$ or
+$\times 4$ weight on images in the missing and under-represented cells
+(run 8), overshot to 0.684, above the real value of 0.566, at FID 18.60.
+Run 8 also used a lower ADA probability ceiling (0.85 instead of 0.95), so
+its FID is not a clean measurement of the oversampling strength alone. The
+coverage overshoot does not depend on that.
 
-The colour-coverage gap of the mid-project models was a rare-mode
-problem: the missing $a^*b^*$ histogram cells contained only
-153 of the 6,511 real images (2.35\%), dominated by purple and violet
-acetate frames. A sampling change was therefore enough. Inverse-frequency
-oversampling (Section~\ref{subsec:data}), which makes boosted images 3.7\% of
-training draws, raised colour coverage from 0.422 to 0.566 while FID improved
-from 8.90 to 7.80. The two runs, ppl4 and rebalance2, differ only in the
-sampling weights, although their selected checkpoints are from epochs 310 and
-460. An earlier, stronger version of the same idea, a fixed $\times 8$ or
-$\times 4$ weight on images in the missing and under-represented cells, overshot
-to 0.684, above the real value of 0.566, at FID 18.60. Coverage increases
-with the strength of the oversampling, and too much of it overshoots. One confound must be recorded: the overshoot run also used a
-lower ADA probability ceiling (0.85 instead of 0.95), so its FID is not a
-clean measurement of the oversampling dose alone. Its coverage overshoot,
-the point the comparison rests on, does not depend on that.
+Hue and saturation augmentation, the colour part of ADA, reduced colour
+diversity. With it, run 5 reached colour coverage 0.168; without it, run 6
+reached 0.367 at the same 400-epoch budget. The comparison was repeated later
+by accident. Run 14 was launched with colour augmentation re-enabled and
+reached 0.176, and run 15, identical apart from the restored setting and 200
+further epochs, reached 0.613. Under run 14, 111 histogram cells holding 928
+real images (14.25\%) were missing, all of them at a chroma of 7.9 or more,
+while the near-neutral cells were all covered. Under run 15 the misses fell
+to 9 cells holding 10 images (0.15\%). In run 14 the augmentation probability
+stayed at its upper limit, so hue jitter was applied at almost every step.
 
-Hue and saturation augmentation, the colour half of ADA, consistently cost
-colour diversity rather than adding it. The clean same-era comparison is
-divcfg2 (colour ADA on) against nocolorada (off): coverage 0.168 against
-0.367 at an equal 400-epoch budget. The late-era accident repeats it at
-larger scale: rebalance3 shipped with colour ADA unintentionally re-enabled
-and reached coverage 0.176, and rebalance4, identical apart from the
-restored flag and 200 further epochs, reached 0.613. The missing-cell analysis shows where the colours were lost: under rebalance3, 111 histogram cells holding
-928 real images (14.25\%) were missing, all of them at a chroma of 7.9 or more, while the
-near-neutral cells were all covered; under rebalance4 the misses fell to 9
-cells holding 10 images (0.15\%). We explain this with the augmentation leaking described for
-ADA~\cite{karras2020ada}. The augmentation probability stayed at its upper
-limit, so hue jitter was applied at almost every step. The discriminator
-then became insensitive to colour and no longer constrained the generator's
-colour distribution.
+Blurring the discriminator feature maps before pooling, used from run 14
+onward, changed how long runs behave. Without it, the mean discriminator
+margin of run 9, the difference between its mean outputs on real and on
+generated images, grew from 4.5 to 37.5 over epochs 400 to 600. Over the same
+period its training KID became 25 times worse (0.0021 at epoch 460, 0.052 at
+epoch 595), and the recall of its final checkpoint fell to zero. With the
+blur, the margin of run 15 over the same windows grew only from 1.9 to 4.4.
+It kept growing slowly and reached 8.1 over epochs 751 to 800, but training
+KID kept improving to the end of the run (0.0014 at epoch 745). The blur was
+introduced together with horizontal flips and the group minibatch standard
+deviation layer, so this comparison does not isolate it.
 
-Blurring discriminator feature maps before pooling changed the failure mode
-of long training runs. Without it, the mean discriminator margin of rebalance2 grew from 4.5 to
-37.5 over epochs 400 to 600. Over the same period its training KID became 25
-times worse (0.0021 at epoch 460, 0.052 at epoch 595), and the recall of its
-final checkpoint fell to zero. We read this as the discriminator memorising
-the 6,511 real images, with the generator drifting away from the data
-distribution. With blurpool, rebalance4's margin
-over the same windows grew only from 1.9 to 4.4. It kept growing slowly and
-reached 8.1 over epochs 751 to 800, but its training KID kept improving to
-the end of the run (0.0014 at epoch 745), so no runaway occurred in 800
-epochs. Blurpool was introduced together
-with horizontal flips and the group minibatch standard deviation layer, so
-this comparison does not isolate it. We attribute the change mainly to the
-blur because it is the only one of the three that limits the
-high-frequency detail available to the discriminator.
+Up to run 15, training images were resized with a bilinear filter, while the
+evaluation resized the real images with a bicubic filter. The generated
+images were therefore softer than the real images they were scored against:
+6.22\% of the images of run 15 failed the sharpness check of the artifact
+suite, against 2.01\% of real images. Run 16 repeats run 15 with bicubic
+resizing in training. After the same 800 epochs its sharpness flag rate was
+2.23\% and its FID 4.50 instead of 5.03. Run 16, continued to 1,600 epochs,
+is the plain model.
 
-Mirror coupling is the only architecture change used in a headline model,
-and both its benefit and its cost are informative. Frames are bilaterally
-symmetric objects, and plain training leaves a residual shape-asymmetry
-gap: the pose-aligned symmetry median of sharp1 at 1,600 epochs is 0.059
-below the real value. The mirror1 variant gives each position of the
-generator access to the horizontally flipped feature map at the $32 \times 64$
-and $64 \times 128$ stages. It closes the gap and overshoots it (0.016 above
-real), but it loses diversity in two ways. Its colour coverage drops to
-0.523, against 0.629 for the sharp1 checkpoint with the same training length.
-Its yaw dispersion falls to 0.44 of the real value: only 5.3\% of its frames
-have an axis offset of 3 pixels or more, against 41.9\% of real frames. Its
-appearance-symmetry flag rate of 0.30\%, against 2.01\% for real images, is
-a score better than real, which Section~\ref{subsec:artifacts} treats as a
-warning sign: the model over-mirrors. The mirror2 variant mirrors about a learned axis for each sample instead of
-the fixed centre. It recovers most of what mirror1 lost. It reaches the highest
-recall of any model in this paper (0.705) and colour coverage of 0.613. Its aligned symmetry
-gap is only $-0.017$, and its appearance-symmetry flag rate of 1.06\% is
-closer to the real value. What
-it does not recover is yaw: its dispersion ratio is 0.45, essentially
-mirror1's 0.44. Both axis parameterisations forbid differential temple
-foreshortening, which is consistent with yaw collapse being a property of
-the mirror prior itself rather than of the axis choice. Plain training
-preserves it (sharp1: 1.07). FID, KID, LPIPS and colour coverage do not
-measure pose, so this loss is visible only through the offset dispersion.
+Plain training leaves a small symmetry gap: the pose-aligned symmetry median
+of the plain model is 0.059 below the real value. The fixed-mirror variant
+(run 17) closes the gap and overshoots it (0.016 above real), but it loses
+diversity in two ways. Its colour coverage drops to 0.523, against 0.629 for
+the plain model at the same training length. Its axis-offset dispersion falls
+to 0.44 of the real value: only 5.3\% of its frames have an axis offset of 3
+pixels or more, against 41.9\% of real frames. Its appearance-symmetry flag
+rate of 0.30\%, against 2.01\% for real images, is better than real, which
+Section~\ref{subsec:artifacts} treats as a warning sign. The mirror-axis
+model (run 18) recovers most of this. It reaches recall 0.705, the highest in
+this study, and colour coverage 0.613. Its aligned symmetry gap is only
+$-0.017$, and its appearance-symmetry flag rate of 1.06\% is closer to the
+real value. It does not recover pose variety: its dispersion ratio is 0.45,
+against 1.07 for the plain model (Figure~\ref{fig:symaxis}c,d).
 
-\subsection{Quality--Diversity Pareto Front}
+Four runs gave no improvement. A Sobel edge channel added to the
+discriminator input (run 10) left FID unchanged (7.868 against 7.869 for
+run 9). Doubling the width of both networks (run 11) diverged. Doubling the
+generator with a 1.5 times wider discriminator (run 12) trained, but its FID
+of 9.00 was worse than that of run 9. Applying five changes from the official
+StyleGAN2 at once (run 13) ended in mode collapse.
+
+\subsection{Quality--Diversity Trade-Off}
 \label{subsec:pareto}
 
-Table~\ref{tab:main} reports the six models that survive the ablations,
-and Figure~\ref{fig:pareto} plots them against the two primary diversity
-axes. The three sharp1 rows come from one run, evaluated after 800, 1,200 and
-1,600 epochs, so they show a training trajectory rather than three
-independent models.
+Table~\ref{tab:main} reports the models that came out of the ablations, and
+Figure~\ref{fig:pareto} plots them against recall and colour coverage. The
+three plain rows come from one run, evaluated after 800, 1,200 and 1,600
+epochs, so they show a training trajectory and not three independent models.
 
 \begin{table}[H]
-\caption{Main results under the frozen generation protocol, evaluated on
+\caption{Main results under the frozen generation protocol. Plain is the proposed generator without a mirror prior; the bilinear-resize row is the same configuration before the training resize filter was corrected. All sets are evaluated on
 matched 5,000-image subsamples. Each row uses the checkpoint with the lowest
-training KID up to the stated epoch (for sharp1 at 1,600 epochs this is
-epoch 1,555; for mirror2, epoch 1,195). Real reference values: colour coverage 0.566,
-LPIPS 0.233, yaw dispersion ratio 1 by definition. The memorisation column
+training KID up to the stated epoch (for the plain model at 1,600 epochs this is
+epoch 1,555; for the mirror-axis model, epoch 1,195). Real reference values: colour coverage 0.566,
+LPIPS 0.233, axis-offset dispersion ratio (Yaw) 1 by definition. The memorisation column
 is the mean nearest-real distance ratio; values near 1 indicate no
 copying.}
 \label{tab:main}
@@ -858,63 +839,56 @@ copying.}
 \textbf{Recall} & \textbf{Dens.} & \textbf{Cov.} & \textbf{ab cov.} &
 \textbf{LPIPS} & \textbf{Yaw} & \textbf{Mem.} \\
 \midrule
-rebalance4       & 5.031 & 0.00197 & 0.835 & 0.623 & 0.948 & 0.886 & 0.613 & 0.230 & --   & 1.03 \\
-sharp1 (800 ep)  & 4.499 & 0.00143 & 0.898 & 0.617 & 1.093 & 0.918 & 0.664 & 0.231 & --   & 1.02 \\
-sharp1 (1,200 ep)& 3.901 & 0.00097 & 0.887 & 0.655 & 1.110 & 0.930 & 0.629 & 0.232 & --   & 1.03 \\
-sharp1 (1,600 ep)& 3.583 & 0.00082 & 0.918 & 0.626 & 1.190 & 0.950 & 0.590 & 0.229 & 1.07 & 1.00 \\
-mirror1          & 4.479 & 0.00136 & 0.848 & 0.667 & 0.920 & 0.920 & 0.523 & 0.236 & 0.44 & 1.03 \\
-mirror2          & 4.064 & 0.00116 & 0.869 & 0.705 & 1.020 & 0.924 & 0.613 & 0.231 & 0.45 & 1.02 \\
+Bilinear (800 ep) & 5.031 & 0.00197 & 0.835 & 0.623 & 0.948 & 0.886 & 0.613 & 0.230 & --   & 1.03 \\
+Plain (800 ep) & 4.499 & 0.00143 & 0.898 & 0.617 & 1.093 & 0.918 & 0.664 & 0.231 & --   & 1.02 \\
+Plain (1,200 ep) & 3.901 & 0.00097 & 0.887 & 0.655 & 1.110 & 0.930 & 0.629 & 0.232 & --   & 1.03 \\
+Plain (1,600 ep) & 3.583 & 0.00082 & 0.918 & 0.626 & 1.190 & 0.950 & 0.590 & 0.229 & 1.07 & 1.00 \\
+Fixed mirror & 4.479 & 0.00136 & 0.848 & 0.667 & 0.920 & 0.920 & 0.523 & 0.236 & 0.44 & 1.03 \\
+Mirror axis & 4.064 & 0.00116 & 0.869 & 0.705 & 1.020 & 0.924 & 0.613 & 0.231 & 0.45 & 1.02 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{figure}[H]
 \includegraphics[width=\textwidth]{images/pareto.pdf}
-\caption{Quality--diversity trade-off. Fidelity (FID, better to the right)
-against recall (a) and colour coverage (b). Filled markers lie on the
-Pareto front of the plotted set; square markers are the two headline
-models re-sampled under the $\psi = 1.2$ single-latent protocol
-(Section~\ref{subsec:transfer}), showing that the front is traced by the
-generation protocol as well as by training. The triangle is the official
-StyleGAN2-ADA with $\gamma = 10$ (Section~\ref{subsec:baseline_results}). The
-dashed line in (b) is the real dataset's coverage at matched sample size.}
+\caption{Quality--diversity trade-off of the proposed models: FID against
+recall (\textbf{a}) and colour coverage (\textbf{b}). Filled circles are the
+two models put forward. The solid line joins three checkpoints of the plain
+run. Squares are the same two models sampled with $\psi = 1.2$ and a single
+latent (Section~\ref{subsec:transfer}), joined to their model by dotted
+lines. The triangle is the official StyleGAN2-ADA with $\gamma = 10$
+(Section~\ref{subsec:baseline_results}). The dashed line in (\textbf{b}) is
+the colour coverage of the real catalogue.}
 \label{fig:pareto}
 \end{figure}
 
-We put forward two models, and neither dominates the other. sharp1 at
-1,600 epochs has the best FID (3.583), precision (0.918) and coverage
-(0.950) of any model in this paper. mirror2 has the highest recall of any model in this paper (0.705) and
-the near-real aligned symmetry described above, at FID 4.064. Choosing between
-them means choosing a point on the front. Ranking the table by FID alone
-would rank it by fidelity, which is not the property this paper studies.
-The sharp1 trajectory shows the difference. From 800 to 1,200 to 1,600
-epochs, FID improves steadily (4.50, 3.90, 3.58), but recall peaks at 1,200
-epochs (0.655) and colour coverage at 800 epochs (0.664), falling to 0.590
-by 1,600. Coverage, which counts the real samples with a generated sample nearby,
-keeps rising (0.918 to 0.950), so not every diversity measure declines. The
-two that measure spread into the rarer parts of the distribution, recall and
-colour coverage, do decline.
+Two models are put forward, and neither dominates the other. The plain model
+at 1,600 epochs has the best FID (3.583), precision (0.918) and coverage
+(0.950) in this study. The mirror-axis model has the highest recall (0.705)
+and near-real aligned symmetry, at FID 4.064. The plain trajectory shows the
+trade-off inside one run. From 800 to 1,200 to 1,600 epochs FID improves
+steadily, but recall peaks at 1,200 epochs and colour coverage at 800 epochs.
+Coverage, which counts the real samples with a generated sample nearby, keeps
+rising, so not every diversity measure declines. The two that measure spread
+into the rarer parts of the distribution, recall and colour coverage, do.
 
-Colour coverage of both headline models is above the real value of
-0.566. As explained in Section~\ref{subsec:metric_families}, this is not an
-improvement but a spread into colours the catalogue does not contain; sharp1
-at 1,600 epochs (0.590) is closer to the real value. Pairwise LPIPS is
-almost the same for every model (0.229 to 0.236, real 0.233), although
-recall differs by up to 0.09. LPIPS therefore does not separate these
-models, which is one reason the eyeglass-specific measures are needed.
+Colour coverage of both models is above the real value of 0.566. As explained
+in Section~\ref{subsec:metric_families}, this is a spread into colours the
+catalogue does not contain and not an improvement; the plain model at 1,600
+epochs (0.590) is closer to the real value. Pairwise LPIPS is almost the same
+for every model (0.229 to 0.236, real 0.233), although recall differs by up
+to 0.09, so LPIPS does not separate these models.
 
-Figure~\ref{fig:grid} shows samples from the real set and the two headline
-models. The grids demonstrate catalogue-level rendering quality; they are
-not evidence about diversity, because at 18 samples per block the recall
-difference between the two models (0.705 against 0.626) is not visually
-detectable. The metrics carry that claim.
+Figure~\ref{fig:grid} shows samples from the real set and the two models. The
+grids show rendering quality. At 18 samples per block the recall difference
+between the two models is not visible, so the diversity results rest on the
+metrics.
 
 \begin{figure}[H]
 \includegraphics[width=\textwidth]{images/grid_models.png}
 \caption{Random samples (fixed seed, no curation): real catalogue frames
-(top), sharp1 at 1,600 epochs (middle), mirror2 (bottom). The grids show
-rendering quality; the diversity differences between the models are
-established by the metrics, not by inspection at this sample size.}
+(top), the plain model at 1,600 epochs (middle) and the mirror-axis model
+(bottom).}
 \label{fig:grid}
 \end{figure}
 
@@ -922,22 +896,20 @@ established by the metrics, not by inspection at this sample size.}
 \label{subsec:baseline_results}
 
 Table~\ref{tab:baseline} compares the two official StyleGAN2-ADA runs of
-Section~\ref{subsec:baseline} with our two headline models. With the
+Section~\ref{subsec:baseline} with the two proposed models. With the
 heuristic $\gamma = 3.28$ the official model reached its lowest official FID
 of 9.06 at 1,600 kimg and then collapsed: at 1,800 kimg its FID was 219, and
 the final snapshot produced only saturated colour blobs. Its selected
 snapshot covers little of the real distribution (recall 0.203). With
-$\gamma = 10$ training was stable for longer, the lowest official FID was
-3.04 at 1,800 kimg, and the result is a much stronger baseline. We therefore
-compare mainly against the $\gamma = 10$ run. That a single change of
-$\gamma$ separates a collapsing run from a strong one agrees with our own
-$R_1$ sweep (Section~\ref{subsec:ablations}).
+$\gamma = 10$ training was stable for longer, and the lowest official FID was
+3.04 at 1,800 kimg. The comparison below is therefore made against the
+$\gamma = 10$ run.
 
 \begin{table}[H]
-\caption{Official StyleGAN2-ADA against our models, all evaluated with the
+\caption{Official StyleGAN2-ADA against the proposed models, all evaluated with the
 same scripts on matched 5,000-image subsamples. The baselines use their
 lowest-FID snapshot and $\psi = 1.0$. Real reference values: colour
-coverage 0.566, hue entropy 0.861, yaw dispersion ratio 1. The last column
+coverage 0.566, hue entropy 0.861, axis-offset dispersion ratio (Yaw) 1. The last column
 counts images with four or more artifact flags among 10,000.}
 \label{tab:baseline}
 \small
@@ -950,64 +922,109 @@ counts images with four or more artifact flags among 10,000.}
 \midrule
 StyleGAN2-ADA, $\gamma = 3.28$ & 13.858 & 0.829 & 0.203 & 0.763 & 0.438 & 0.800 & 1.20 & 360 \\
 StyleGAN2-ADA, $\gamma = 10$   & 4.699  & 0.883 & 0.632 & 0.939 & 0.422 & 0.831 & 1.20 & 174 \\
-sharp1 (1,600 ep)              & 3.583  & 0.918 & 0.626 & 0.950 & 0.590 & 0.859 & 1.07 & 85  \\
-mirror2                        & 4.064  & 0.869 & 0.705 & 0.924 & 0.613 & 0.850 & 0.45 & 112 \\
+Plain (1,600 ep) & 3.583  & 0.918 & 0.626 & 0.950 & 0.590 & 0.859 & 1.07 & 85  \\
+Mirror axis & 4.064  & 0.869 & 0.705 & 0.924 & 0.613 & 0.850 & 0.45 & 112 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Against the $\gamma = 10$ baseline the picture is mixed rather than one-sided.
-Both of our models have a better FID (3.58 and 4.06 against 4.70), and
-sharp1 also has higher precision. On recall and coverage the baseline
-matches sharp1 (0.632 against 0.626, within the noise floor), while mirror2
-is clearly ahead on recall (0.705). The clearest difference is colour. The
+Against this baseline the result is mixed. Both proposed models have a better
+FID (3.58 and 4.06 against 4.70), and the plain model also has higher
+precision. On recall and coverage the baseline matches the plain model (0.632
+against 0.626, within the noise floor), while the mirror-axis model is
+clearly ahead on recall (0.705). The clearest difference is colour. The
 baseline covers 0.422 of the colour cells, well below the real value of
-0.566, and its hue entropy is also lower, whereas both of our models cover
-the real colour range. This is what the ablations of
-Section~\ref{subsec:ablations} predict: the official augmentations include
-hue and saturation changes, which reduced colour coverage in our runs, and
-the official training has no rare-colour sampling. The baseline also has
-about twice as many heavily flagged images as sharp1, and it still produces
-occasional near-blank frames. Its one advantage is pose: its yaw
-dispersion is 1.20, slightly above the real value, while mirror2 collapses
-to 0.45, as discussed above.
+0.566, and its hue entropy is also lower, whereas both proposed models cover
+the real colour range. The baseline also has about twice as many heavily
+flagged images as the plain model, and it still produces occasional
+near-blank frames. Its advantage is pose: its axis-offset dispersion is 1.20,
+slightly above the real value (Figure~\ref{fig:symaxis}e), while the
+mirror-axis model falls to 0.45.
 
 The baseline was generated with $\psi = 1.0$ and a single latent per image,
-whereas our models use the layered protocol. At that same protocol our
-models still reach FID 3.60 and 4.03, recall 0.618 and 0.687, and colour
-coverage 0.570 and 0.543 (Table~\ref{tab:transfer}), so the comparison does
-not depend on the generation protocol. Two limits apply. The baseline was
-trained at $512 \times 512$ on padded images rather than directly at
-$256 \times 512$. It also saw fewer training images: 1.8 million at its
-selected snapshot, against about 10.1 million for sharp1 (1,555 epochs of
-6,511 images) and 7.8 million for mirror2 (1,195 epochs). The shorter
-training was not a choice: with both values of $\gamma$ the baseline's FID
-stopped improving and then deteriorated well before those budgets. The comparison shows what the
-official model gives on this dataset with its recommended settings and one
-stronger regularisation value; it does not show what it could reach with
-further tuning, which is what the ablations of this paper did for our own
-model.
+whereas the proposed models use the layered protocol. With the baseline's
+protocol the proposed models still reach FID 3.60 and 4.03, recall 0.618 and
+0.687, and colour coverage 0.570 and 0.543 (Table~\ref{tab:transfer}), so the
+comparison does not depend on the generation protocol. Two limits apply. The
+baseline was trained at $512 \times 512$ on padded images rather than
+directly at $256 \times 512$. It also saw fewer training images: 1.8 million
+at its selected snapshot, against about 10.1 million for the plain model
+(1,555 epochs of 6,511 images) and 7.8 million for the mirror-axis model
+(1,195 epochs). The shorter training was not a choice: with both values of
+$\gamma$ the baseline's FID stopped improving and then deteriorated well
+before those budgets.
 
 Two checks were run on the selected $\gamma = 10$ snapshot. Generating it
 again with a second seed (seeds 10,000 to 19,999) moved FID by 0.080,
 precision by 0.010, density by 0.024 and coverage by 0.007, somewhat more
-than the floor of Table~\ref{tab:noise}, which was measured on our own
-model; recall moved by 0.017, colour coverage not at all and hue entropy by
-0.008. None of these shifts changes the comparison above. Generating at
-$\psi = 1.2$ instead of 1.0 raised recall to 0.749 and colour coverage to
-0.449 at the cost of precision (0.763) and FID (7.07), the
-same trade-off that Table~\ref{tab:transfer} shows for our models. Even at
-that setting the baseline's colour coverage stays well below the real value
-and below both of our models at $\psi = 1.0$.
+than the floor of Table~\ref{tab:noise}, which was measured on the
+mirror-axis model; recall moved by 0.017, colour coverage not at all and hue
+entropy by 0.008. None of these shifts changes the comparison above.
+Generating at $\psi = 1.2$ instead of 1.0 raised recall to 0.749 and colour
+coverage to 0.449 at the cost of precision (0.763) and FID (7.07), the same
+trade-off that Table~\ref{tab:transfer} shows for the proposed models. Even
+at that setting the baseline's colour coverage stays well below the real
+value and below both proposed models at $\psi = 1.0$.
 
-\subsection{Generation-Protocol Transfer}
+\subsection{Generation Protocol}
 \label{subsec:transfer}
 
-The frozen protocol was selected on an intermediate model at FID 10.2. To
-test whether its selection survives at the final operating point, the five
-uniform-$\psi$ protocols of Table~\ref{tab:protocols} were re-run on both
-headline models, 10,000 images per cell at the standard seed, and evaluated
-identically (Table~\ref{tab:transfer}).
+The nine protocols of Section~\ref{subsec:generation} were first compared on
+the checkpoint of run 6 (Table~\ref{tab:protocols}).
+
+\begin{table}[H]
+\caption{Generation protocols evaluated on a common checkpoint. Yield is the
+fraction of the 10,000 generated images surviving rejection sampling.
+Truncation is applied toward the style mean; ``pure'' denotes a single latent
+per image and ``mixed'' the blended default; ``layered'' applies $\psi = 1.0$
+to the three coarse stages and $\psi = 1.2$ to the three fine stages.}
+\label{tab:protocols}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccccccc}
+\toprule
+\textbf{Protocol} & \textbf{FID} $\downarrow$ & \textbf{Prec.} &
+\textbf{Dens.} & \textbf{Recall} & \textbf{$a^*b^*$ cov.} &
+\textbf{Vendi} & \textbf{Yield} \\
+\midrule
+$\psi = 0.85$, mixed                 & 13.09 & 0.963 & 2.03 & 0.103 & 0.219 & 2.29 & 100\% \\
+$\psi = 1.0$, mixed                  & 11.25 & 0.924 & 1.65 & 0.154 & 0.270 & 2.52 & 100\% \\
+$\psi = 1.2$, mixed                  & 10.46 & 0.844 & 1.20 & 0.235 & 0.352 & 2.83 & 100\% \\
+$\psi = 1.0$, pure                   & 10.41 & 0.890 & 1.32 & 0.189 & 0.313 & 2.70 & 100\% \\
+$\psi = 1.2$, pure                   & 10.76 & 0.765 & 0.87 & 0.324 & 0.395 & 3.05 & 100\% \\
+$\psi = 1.2$, pure, precision filter & 10.35 & 0.923 & 1.15 & 0.250 & 0.355 & 2.85 & 69.7\% \\
+Layered $1.0/1.2$, pure              & 10.20 & 0.879 & 1.27 & 0.212 & 0.367 & 2.74 & 100\% \\
+Layered, precision filter            & 10.51 & 0.957 & 1.46 & 0.169 & 0.344 & 2.65 & 82.9\% \\
+Layered, $k = 8$ centres             & 10.22 & 0.879 & 1.28 & 0.203 & 0.352 & 2.73 & 100\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Three findings follow from this sweep. In this domain, truncation below
+$\psi = 1$ is not a trade-off but a plain loss. Moving from 0.85 to 1.0 to
+1.2 improves FID and every diversity measure at the same time. The low-$\psi$
+settings normally used to improve image
+quality~\cite{brock2019biggan,karras2019stylegan} are therefore not on the
+front at all. Precision does rise as $\psi$ falls, but the density column
+shows that this is not better fidelity. At $\psi = 0.85$ density reaches
+2.03, which means the samples crowd into the densest regions of the real
+distribution. FID, which accounts for both fidelity and coverage, gets worse.
+Synthesising each image from a single latent beats blending several style
+codes at matched $\psi$ on nearly every axis, because averaging style codes
+pulls every sample toward the population mean. The blended scheme was
+nevertheless the default inherited from the previous work. Layered truncation
+gives the best compromise: the lowest FID at full yield, and higher colour
+coverage than the filtered $\psi = 1.2$ set, because the stages that control
+colour are not truncated.
+
+Two choices brought no benefit. Truncation toward eight centres differs from
+the single-centre layered protocol by 0.02 FID, which is within the noise
+floor. A precision filter added to the layered protocol raised precision but
+lowered recall and colour coverage, so it moved along the trade-off and did
+not improve it.
+
+Because this selection was made on an intermediate model with FID 10.2, the
+five uniform-$\psi$ protocols were run again on the two final models, with
+10,000 images per cell at the standard seed (Table~\ref{tab:transfer}).
 
 \begin{table}[H]
 \caption{Protocol re-sweep on the final models. The layered rows are the
@@ -1019,14 +1036,14 @@ for this comparison. Every cell is a single generation run at one seed.}
 \textbf{Model} & \textbf{Protocol} & \textbf{FID} & \textbf{Prec.} &
 \textbf{Recall} & \textbf{ab cov.} \\
 \midrule
-sharp1 (1,600 ep) & layered $1.0/1.2$, pure & 3.583 & 0.918 & 0.626 & 0.590 \\
+Plain (1,600 ep) & layered $1.0/1.2$, pure & 3.583 & 0.918 & 0.626 & 0.590 \\
                   & $\psi = 0.85$, mixed    & 5.957 & 0.961 & 0.447 & 0.527 \\
                   & $\psi = 1.0$, mixed     & 4.213 & 0.941 & 0.544 & 0.547 \\
                   & $\psi = 1.2$, mixed     & 3.605 & 0.899 & 0.647 & 0.551 \\
                   & $\psi = 1.0$, pure      & 3.602 & 0.921 & 0.618 & 0.570 \\
                   & $\psi = 1.2$, pure      & 4.145 & 0.847 & 0.715 & 0.602 \\
 \midrule
-mirror2           & layered $1.0/1.2$, pure & 4.064 & 0.869 & 0.705 & 0.613 \\
+Mirror axis           & layered $1.0/1.2$, pure & 4.064 & 0.869 & 0.705 & 0.613 \\
                   & $\psi = 0.85$, mixed    & 6.193 & 0.941 & 0.509 & 0.469 \\
                   & $\psi = 1.0$, mixed     & 4.592 & 0.913 & 0.613 & 0.504 \\
                   & $\psi = 1.2$, mixed     & 4.427 & 0.839 & 0.689 & 0.555 \\
@@ -1038,32 +1055,29 @@ mirror2           & layered $1.0/1.2$, pure & 4.064 & 0.869 & 0.705 & 0.613 \\
 
 The selection transfers. No alternative beats the layered protocol on FID
 beyond the noise floor on either model; the closest, $\psi = 1.0$ pure,
-differs by $+0.020$ on sharp1 and $-0.031$ on mirror2, both within the
-0.052 floor. At that tied fidelity the layered protocol keeps more colour
-coverage, by 0.070 on mirror2 and by a marginal 0.020 on sharp1. The old blended
-default at $\psi = 0.85$ has the worst FID, recall and colour coverage on
-both models, 2.1 to 2.4 FID and 0.18 to 0.20 recall worse than layered. Its
-precision is the highest, for the reason given in
-Section~\ref{subsec:generation}. More recall is available at a price:
-$\psi = 1.2$ pure raises recall by 0.089 on sharp1 and 0.032 on mirror2, but
-costs 0.56 and 1.29 FID and a large drop in precision. These two cells are
-the square markers in Figure~\ref{fig:pareto}. The generation protocol
-therefore moves a model along the front, and the choice of protocol is part
-of the choice of operating point. Two caveats bound the claim:
-each cell is a single generation run at one seed, and the noise floor was
-measured on mirror2 and applied to both models. The conclusion is that the
-layered protocol was not beaten beyond seed noise, not that it is strictly
-best.
+differs by $+0.020$ on the plain model and $-0.031$ on the mirror-axis model,
+both within the 0.052 floor. At that tied fidelity the layered protocol keeps
+more colour coverage, by 0.070 on the mirror-axis model and by a marginal
+0.020 on the plain model. The old blended default at $\psi = 0.85$ has the
+worst FID, recall and colour coverage on both models, 2.1 to 2.4 FID and 0.18
+to 0.20 recall worse than layered. More recall is available at a price:
+$\psi = 1.2$ pure raises recall by 0.089 on the plain model and 0.032 on the
+mirror-axis model, but costs 0.56 and 1.29 FID and a large drop in precision.
+These two cells are the square markers in Figure~\ref{fig:pareto}. Two
+caveats apply: each cell is a single generation run at one seed, and the
+noise floor was measured on the mirror-axis model and applied to both. The
+result is that the layered protocol was not beaten beyond seed noise, not
+that it is strictly best.
 
 \subsection{Realistic Novelty}
 \label{subsec:novelty_results}
 
 Table~\ref{tab:novelty} applies the novelty metric of
-Section~\ref{subsec:novelty} to the headline models, to rebalance4 and to the
-two StyleGAN2-ADA baselines. The
+Section~\ref{subsec:novelty} to the two proposed models, to the
+bilinear-resize model (run 15) and to the two StyleGAN2-ADA baselines. The
 nearest-neighbour distances of the generated images are close to the real
 calibration distances (medians 4.41 to 4.47, against 4.29). Novelty is
-therefore limited to a small tail rather than a general shift. Together with
+therefore limited to a small tail and is not a general shift. Together with
 the memorisation ratios of Table~\ref{tab:main}, this shows that the models
 neither copy the catalogue nor drift away from it.
 
@@ -1078,83 +1092,77 @@ structural artifact suite.}
 \textbf{Model} & \textbf{Novel} & \textbf{Novel, realistic} &
 \textbf{Novel, realistic, clean} \\
 \midrule
-sharp1 (1,600 ep) & 4.7\% & 2.1\% & 1.3\% \\
-mirror2           & 6.2\% & 2.5\% & 1.6\% \\
-rebalance4        & 7.1\% & 2.4\% & 1.7\%\tsup{\dag} \\
+Plain (1,600 ep) & 4.7\% & 2.1\% & 1.3\% \\
+Mirror axis & 6.2\% & 2.5\% & 1.6\% \\
+Bilinear (800 ep) & 7.1\% & 2.4\% & 1.7\%\tsup{\dag} \\
 StyleGAN2-ADA, $\gamma = 3.28$ & 8.2\% & 2.4\% & 1.8\% \\
 StyleGAN2-ADA, $\gamma = 10$   & 6.4\% & 2.4\% & 1.7\% \\
 Held-out real images           & 4.4\% & 2.8\% & -- \\
 \bottomrule
 \end{tabular}
 \begin{adjustwidth}{0cm}{0cm}
-\noindent{\footnotesize \tsup{\dag} rebalance4 was scored under the
+\noindent{\footnotesize \tsup{\dag} This model was scored under the
 earlier 11-check artifact suite, so its strict rate is not directly
 comparable with the other rows. The held-out row scores one half of the real
 set against the other half (Section~\ref{subsec:novelty}).}
 \end{adjustwidth}
 \end{table}
 
-The rates are similar across all models: 2.1 to 2.5\% realistic novelty
-and 1.3 to 1.8\% after the artifact filter, close to the 2.8\% of held-out
-real images. All generators therefore add new designs at roughly the rate
-that a new set of catalogue photographs would. The metric does not rank the
-models: the $\gamma = 3.28$ baseline, which has by far the lowest recall,
-has the highest strict rate. A high novelty rate is not evidence of broad
-coverage, and the novelty rate should be read together with recall and
-coverage, not instead of them. The strict column is the most reliable of the three, because quality is
-lowest in the novel tail. For the two headline models only 62 to 64\% of
-novel realistic frames pass all artifact checks, against 84 to 87\% of the
-full sets, and the flags concentrate among the most novel images, as the
-argument of Section~\ref{subsec:novelty} predicts. The clean novel images
-we inspected include thin-wire designs whose shape or colour has no close
-match in the catalogue, while the most novel images overall are rimless
-frames.
+The rates are similar across all models: 2.1 to 2.5\% realistic novelty and
+1.3 to 1.8\% after the artifact filter, close to the 2.8\% of held-out real
+images. The metric does not rank the models: the $\gamma = 3.28$ baseline,
+which has by far the lowest recall, has the highest strict rate. The novelty
+rate should therefore be read together with recall and coverage, not instead
+of them. The strict column is the most reliable of the three, because quality
+is lowest in the novel tail. For the two proposed models only 62 to 64\% of
+novel realistic frames pass all artifact checks, against 83 to 87\% of the
+full sets. Figure~\ref{fig:novel} shows novel images that pass all checks.
+They include thin-wire designs whose shape or colour has no close match in
+the catalogue; the most novel images overall are rimless frames.
 
-\subsection{Rejection Filtering as a Pareto Knob}
+\begin{figure}[H]
+\includegraphics[width=\textwidth]{images/novel_examples.pdf}
+\caption{Novel realistic images that pass every artifact check, each next to
+its nearest catalogue image in feature space. For each model the three most
+novel such images are shown, without further selection.}
+\label{fig:novel}
+\end{figure}
+
+\subsection{Rejection Filtering}
 \label{subsec:filtering}
 
 Post-hoc rejection of low-quality samples is an established way to trade
-yield for quality~\cite{azadi2019drs}; here the artifact suite provides the
-rejection rule, and the question is what filtering costs. We tested this on rebalance2, the last model that needed it, with three
-settings: no filter, at most one flag, and zero flags. FID went from 7.802 to
-7.956 to 8.566, precision from 0.881 to 0.892 to 0.890, and colour coverage
-from 0.566 to 0.547 to 0.520. Filtering buys structural cleanliness and pays in colour,
-because the structural defects concentrate in the rare-colour tail of the
-distribution, so rejecting flagged images preferentially rejects rare
-colours. It is a movement along a front, not an improvement of it.
+yield for quality~\cite{azadi2019drs}. Here the artifact suite provides the
+rejection rule. This was tested on run 9, the last model that needed it, with
+three settings: no filter, at most one flag, and zero flags. FID went from
+7.802 to 7.956 to 8.566, precision from 0.881 to 0.892 to 0.890, and colour
+coverage from 0.566 to 0.547 to 0.520. Filtering therefore moved the model
+along the trade-off and did not improve it. From run 15 onward the unfiltered
+clean rate is at the level of the real corpus (86.4\% against 86.7\%). The
+final models use no filtering, and all their results are measured on
+unfiltered output.
 
-From rebalance4 onward the unfiltered clean rate is at the level of the
-real corpus (86.4\% against 86.7\%). The final models therefore use no
-filtering, and all their results are measured on unfiltered output.
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\section{Checkpoint Selection Under a Diversity Objective}
+\subsection{Checkpoint Selection}
 \label{sec:checkpoints}
 
-Every model in this paper was represented by the checkpoint with the lowest
-training KID, which is common practice. KID is a single distribution-level
-score, and the sharp1 trajectory of Section~\ref{subsec:pareto} already
-showed FID improving while recall and colour coverage declined in the same
-run. This raises a direct question: does the minimum-KID checkpoint also
-give the best dataset? We tested it in two ways.
+Every model in this paper is represented by the checkpoint with the lowest
+training KID, which is common practice. The plain trajectory of
+Section~\ref{subsec:pareto} already showed FID improving while recall and
+colour coverage declined in the same run. Whether the minimum-KID checkpoint
+also gives the best dataset was therefore tested in two ways.
 
-\subsection{Best Versus Last Checkpoint}
-\label{subsec:best_last}
-
-For each run, the minimum-KID checkpoint (best) and the final checkpoint
-(last) were generated and evaluated under the identical protocol. Two runs
-were excluded: sg2f, whose checkpoint no longer computes the function it was
-trained as (Section~\ref{subsec:silent}), and edgeD, whose best and last
-checkpoints contain bit-identical EMA generator weights. The remaining sixteen
-runs were grouped by comparing best and last on FID and recall, each against
-its noise floor; differences inside the floor count as ties
-(Table~\ref{tab:bestlast}).
+First, for each run the minimum-KID checkpoint (best) and the final
+checkpoint (last) were generated and evaluated under the identical protocol.
+Two runs were excluded: run 13, whose checkpoint was invalidated by a later
+code change, and run 10, whose best and last checkpoints contain bit-identical
+generator weights. The remaining sixteen runs were grouped by comparing best
+and last on FID and recall, each against its noise floor; differences inside
+the floor count as ties (Table~\ref{tab:bestlast}).
 
 \begin{table}[H]
 \caption{Minimum-KID (best) against final (last) checkpoint for 16 runs,
 under the frozen generation protocol. Each cell gives best / last. Epochs
-are epochs completed. Groups follow FID and recall compared against the
-noise floor of Table~\ref{tab:noise}.}
+are epochs completed. Groups follow FID and recall compared against the noise floor of Table~\ref{tab:noise}. Run names as in Table~\ref{tab:runs}; sharp1 and mirror2 are the plain and the mirror-axis model.}
 \label{tab:bestlast}
 \small
 \setlength{\tabcolsep}{4pt}
@@ -1188,42 +1196,30 @@ fidelity only & divcfg2     & 340 / 400   & 11.80 / 12.67 & 0.198 / 0.211 & 0.16
 
 In five runs the best checkpoint wins on both axes. Three of these are late
 collapses: ppl4, rebalance2 and wide2 lose almost all recall by their final
-epoch, and rebalance2's FID rises from 7.87 to 71.13. In these runs KID
-selection did exactly what it should and saved a usable model. In five more
-runs the best checkpoint is better on FID while recall does not differ
-beyond noise.
+epoch, and the FID of rebalance2 rises from 7.87 to 71.13. In five more runs
+the best checkpoint is better on FID while recall does not differ beyond
+noise. The other six runs go the other way. In four of them the last
+checkpoint wins on at least one axis and loses on none. The clearest case is
+nocolorada, where training for 120 more epochs after the KID minimum improved
+FID from 10.20 to 8.93 and recall from 0.211 to 0.353 at the same time. In
+two runs the axes disagree: for r1gamma5 the best checkpoint has the better
+FID (13.62 against 14.47), but the last has higher recall (0.130 against
+0.103) and much higher colour coverage (0.434 against 0.305). The official
+StyleGAN2-ADA baseline shows the protective side of the rule. With
+$\gamma = 3.28$ its official FID was 9.06 at 1,600 kimg and 219 at 1,800
+kimg; with $\gamma = 10$ it was 3.04 at 1,800 kimg and 7.04 at 2,400 kimg.
 
-The other six runs go the other way. In four of them the last checkpoint
-wins on at least one axis and loses on none. The clearest case is
-nocolorada, where training for 120 more epochs after the KID minimum
-improved FID from 10.20 to 8.93 and recall from 0.211 to 0.353 at the same
-time. In two runs the axes disagree: for r1gamma5 the best checkpoint has the
-better FID (13.62 against 14.47), but the last has higher recall (0.130
-against 0.103) and much higher colour coverage (0.434 against 0.305). Taken
-together, the minimum-KID checkpoint is a reliable guard against collapse,
-but in six of sixteen runs it was not the checkpoint with the best diversity.
-
-The official StyleGAN2-ADA baseline shows the same pattern
-(Section~\ref{subsec:baseline_results}). With $\gamma = 3.28$ its official
-FID was 9.06 at 1,600 kimg and 219 at 1,800 kimg; with $\gamma = 10$ it was
-3.04 at 1,800 kimg and 7.04 at 2,400 kimg. FID rose after its minimum in
-both runs, and sharply in the first, so lowest-FID selection again protected
-against degradation and collapse.
-
-\subsection{Continued Training of the Headline Model}
-\label{subsec:continuation}
-
-The comparison above has only two points per run. To see what happens
-between them, mirror2 was continued from epoch 1,200 to 1,500 with a
+Second, the mirror-axis model was continued from epoch 1,200 to 1,500 with a
 generator snapshot saved every 50 epochs, and each snapshot was evaluated
 under the frozen protocol (Figure~\ref{fig:epochcurve}).
 
 \begin{figure}[H]
 \includegraphics[width=\textwidth]{images/epoch_curve.pdf}
-\caption{Continued training of mirror2. (a) Training KID. (b--e) FID,
-precision, recall and colour coverage of snapshots every 50 epochs. The red
-point is the published checkpoint (epoch 1,195) and the shaded band is its
-value plus or minus the noise floor of Table~\ref{tab:noise}.}
+\caption{Continued training of the mirror-axis model. (\textbf{a}) Training
+KID. (\textbf{b}--\textbf{e}) FID, precision, recall and colour coverage of
+snapshots every 50 epochs. The red point is the published checkpoint (epoch
+1,195) and the shaded band is its value plus or minus the noise floor of
+Table~\ref{tab:noise}.}
 \label{fig:epochcurve}
 \end{figure}
 
@@ -1233,63 +1229,130 @@ than at epoch 1,195 beyond the noise floor at five of the six snapshots and
 within noise at the sixth. Precision was lower beyond noise at all six.
 Recall stayed within noise at all six, between 0.688 and 0.717. Colour
 coverage fell at five of the six, by up to 0.047 at epoch 1,500. Three
-hundred more epochs gave a better training KID and a slightly worse
-dataset.
+hundred more epochs gave a better training KID and a slightly worse dataset.
 
-Part of the explanation is measurement noise in the selection score itself.
-Training KID is estimated from 1,000 real and 1,000 generated images with
-subsets of 100, which is much cheaper than the 5,000-image evaluation used
-for the paper's tables. Over the 27 KID evaluations after epoch 1,200 of
-the sharp1 run, the standard deviation was 0.00040 and the largest value was
-six times the smallest. The minimum at epoch 1,555 (0.00044) was below the
-final value at epoch 1,600 (0.00064) by only about half of that standard
-deviation, so the choice between them was close to a coin toss.
-
-The practical conclusion is to treat the minimum-KID rule as an early
-stopping guard against collapse, not as a way to find the best checkpoint.
-When the goal is a diverse dataset, saving snapshots and evaluating them
-with the full suite is the safer procedure. It costs disk space and
-evaluation time, but no further training. A larger KID sample during
-training would make the guard itself less noisy.
+The selection score is itself noisy. Training KID is estimated from 1,000
+real and 1,000 generated images with subsets of 100, which is much cheaper
+than the 5,000-image evaluation used for the tables. Over the 27 KID
+evaluations after epoch 1,200 of the plain run, the standard deviation was
+0.00040 and the largest value was six times the smallest. The minimum at
+epoch 1,555 (0.00044) was below the final value at epoch 1,600 (0.00064) by
+only about half of that standard deviation.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Discussion}
 \label{sec:discussion}
 
-\subsection{Preprocessing Mismatch and Measured Quality}
-\label{subsec:resize}
+The question posed in the Introduction was where a GAN trained on a small
+product catalogue loses diversity, and how the loss can be detected. The
+ablations point to three places. The first is the balance between generator
+and discriminator. Diversity did not come from weakening the discriminator:
+the strongest $R_1$ penalty gave the least diverse model. It did not come
+from an unconstrained discriminator either. The runs without feature-map
+blur lost all recall once the discriminator margin grew, which is read here
+as the discriminator memorising the 6,511 real images. The blur is the likely
+cause of the improvement, because of the three changes introduced with it, it
+is the only one that limits the high-frequency detail available to the
+discriminator. The official StyleGAN2-ADA behaved in the same way. One change
+of $\gamma$ separated a collapsing run from a strong one, in line with
+reports that this weight is decisive on small
+datasets~\cite{karras2020ada,mohanty2024rosacea}.
 
-% The strongest methodological finding: a train/eval resize filter mismatch
-% capped measured output quality across six architecture experiments and
-% produced three plausible but wrong explanations before it was located.
+The second place is colour. Hue and saturation augmentation removed the
+chromatic frames from the output and kept the near-neutral ones. This is
+consistent with the leaking of augmentations described for
+ADA~\cite{karras2020ada}: when a colour augmentation is applied at almost
+every step, the discriminator can no longer tell which colours are real and
+stops constraining the colour distribution of the generator. The same
+explanation fits the baseline, whose official augmentation set includes hue
+and saturation changes and whose colour coverage is the lowest of the
+compared models. Rare colours also needed help from the sampler, because
+2.35\% of the catalogue held all the missing colour cells. Rejection
+filtering worked against this. Each stricter filter lowered colour coverage,
+which suggests that the flagged images are concentrated among the rare
+colours.
 
-\subsection{Silent Failure Modes in Training and Checkpointing}
-\label{subsec:silent}
+The third place is pose. A mirror prior in the generator brought the symmetry
+of the frames close to the real value and gave the highest recall, but it
+reduced the variety of viewing angles to less than half of the real value.
+Learning the axis for each sample did not restore it. Both variants force the
+two halves of the frame to agree, which rules out the unequal temple lengths
+that a slightly rotated frame shows. The loss therefore appears to be a
+property of the mirror prior itself and not of the choice of axis. For a
+dataset meant for training detectors or segmentation models, the plain model
+is the safer choice when pose variety matters, and the mirror-axis model when
+coverage of frame designs matters.
 
-% Silent AMP generator-step skipping; partial EMA load; and a checkpoint
-% invalidated by a code change with no key or shape mismatch.
+None of these losses was visible in the standard measures. FID, KID and LPIPS
+do not respond to pose, LPIPS was the same for all final models, and the best
+FID belonged to a checkpoint whose recall and colour coverage had already
+declined. This agrees with the criticism of single-number
+evaluation~\cite{jayasumana2024rethinkingfid,stein2023exposingflaws} and
+supports measures that are tied to the product and always compared with the
+real set. The novelty results add a caution in the other direction. All
+generators, including a baseline with very low recall, produced realistic
+novel images at about the rate of held-out real images, between 2 and 3\%. A
+GAN trained on a catalogue therefore mostly fills the space between known
+designs, and the size of a generated set should not be read as a number of
+new designs.
 
-\subsection{Negative Results}
-\label{subsec:negative}
+For checkpoint selection, the minimum-KID rule should be treated as an
+early-stopping guard against collapse and not as a way to find the best
+checkpoint. When the goal is a diverse dataset, saving snapshots and
+evaluating them with the full suite is the safer procedure. It costs disk
+space and evaluation time but no further training, and a larger KID sample
+during training would make the guard itself less noisy. Two practical lessons
+came from failures. The resize mismatch lowered the measured sharpness of
+every model for fifteen runs and was not affected by changes of network width
+or of the discriminator; a deficit that does not react to any architectural
+change should be looked for in the data path. In addition, two runs failed
+silently. In run 10 the generator stopped updating for its last 20 epochs
+without any error message, and the checkpoint of run 13 still loads without
+error but no longer reproduces its evaluation after a later code change. Both
+were found only because evaluation results were compared between checkpoints.
 
-% Falsified hypotheses: weaker D, colour ADA, D input channel, G capacity,
-% and the yaw reading behind the second mirror variant.
-
-\subsection{Method Lessons}
-\label{subsec:lessons}
-
-% What we would do differently: validate a new metric on controlled input
-% before building on it; change one thing at a time; diff every launch.
-
-\subsection{Limitations}
-\label{subsec:limitations}
-
-% Reproducibility limits, and yaw collapse under a symmetry prior as a
-% measured property of the prior rather than a defect of one model.
+The study has several limits. It uses one dataset of one product category,
+and the silhouette extraction and the metric thresholds assume a near-uniform
+background. Every configuration was trained once. Variation between training
+seeds was not measured, because one run costs about 60 GPU-hours, and the
+noise floor covers generation seeds only. Differences between configurations
+that are close to the floor may therefore not repeat~\cite{lucic2018equal}.
+Several ablations changed more than one factor, as noted where they are
+reported. The baseline was trained on padded square images and tuned over two
+values of one parameter, so the comparison shows what the official model
+gives with limited tuning and not its best possible result. The feature-space
+measures rely on Inception features trained on ImageNet, and the realism test
+of the novelty rate is weakest for rimless and thin-wire frames, where the
+silhouettes are also unstable. Finally, the generated datasets were not
+tested in a downstream task. Whether the measured gains in diversity improve
+a detector or a segmentation model~\cite{ravuri2019cas} is left for future
+work, together with segmentation masks for the diverse models and a mirror
+prior that keeps pose as a free variable.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Conclusions}
 \label{sec:conclusions}
+
+This paper examined how diverse a GAN-generated dataset of eyeglass frame
+images is in comparison with the 6,511-image catalogue it was trained on. A
+metric suite for this product was proposed and validated, and eighteen
+training configurations and nine sampling protocols were compared with it.
+Diversity was lost in specific places: under too weak or too strong
+discriminator regularisation, under colour augmentation, under a mirror
+prior, under truncation below $\psi = 1$, and in longer training after recall
+had peaked. Each loss was measurable with a product-specific measure and was
+not visible in FID alone. Two generators were put forward. The plain model
+reaches FID 3.58 with the pose variety of the real set, and the mirror-axis
+model reaches recall 0.705 with near-real symmetry but less than half of the
+real pose variety. Both cover the colour range of the catalogue, whereas the
+official StyleGAN2-ADA at its better setting covers 0.422 of the colour cells
+against 0.566 for the real set. Realistic novel designs make up about 2\% of
+the generated images, the same order as for held-out real images. The
+lowest-KID checkpoint protected against collapse but was not the most diverse
+checkpoint in six of sixteen runs, so checkpoints for dataset generation
+should be chosen with the full suite. The code, the generators and the
+generated datasets are public.
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %\section{Patents}
@@ -1354,15 +1417,78 @@ VRAM & Video random-access memory\\
 }
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\appendixtitles{no}
-%\appendixstart
-%\appendix
-%\section{Appendix Title}
-%\label{app:example}
+\appendixtitles{yes}
+\appendixstart
+\appendix
+\section[\appendixname~\thesection]{Training Runs and Validation of the Symmetry Metrics}
+\label{app:runs}
 
-%\finishlandscape
+Table~\ref{tab:runs} lists all training runs of the proposed generator.
+Table~\ref{tab:symval} gives the validation of the symmetry metrics of
+Sections~\ref{subsec:aligned_sym} and~\ref{subsec:yaw} on synthetic
+silhouettes.
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{table}[H]
+\caption{All training runs of the proposed generator, in chronological order. Run 16 (sharp1) is the plain model and run 18 (mirror2) the mirror-axis model of the main text. Each
+change is relative to the run before it. FID is measured at the minimum-training-KID checkpoint
+under the frozen generation protocol, in one common evaluation sweep; a dash
+marks a run with no valid measurement. Run 18 was later continued to epoch
+1,500 for the checkpoint study of Section~\ref{sec:checkpoints}.}
+\label{tab:runs}
+\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{llccll}
+\toprule
+\textbf{\#} & \textbf{Run} & \textbf{Epochs} & \textbf{FID} &
+\textbf{Change} & \textbf{Outcome} \\
+\midrule
+1 & baseline & 145 & 25.805 & \parbox[t]{4.0cm}{\raggedright first stable unconditional run, $R_1$ $\gamma = 2$} & \parbox[t]{3.9cm}{\raggedright D overfits; training KID minimum at epoch 115} \\[1pt]
+2 & r1gamma5 & 400 & 13.620 & \parbox[t]{4.0cm}{\raggedright $\gamma = 5$} & \parbox[t]{3.9cm}{\raggedright best of the $\gamma$ sweep} \\[1pt]
+3 & r1gamma10 & 400 & 22.202 & \parbox[t]{4.0cm}{\raggedright $\gamma = 10$} & \parbox[t]{3.9cm}{\raggedright over-regularised; worst diversity of the sweep} \\[1pt]
+4 & divcfg & 152 & 33.674 & \parbox[t]{4.0cm}{\raggedright perceptual loss removed} & \parbox[t]{3.9cm}{\raggedright quality collapse} \\[1pt]
+5 & divcfg2 & 400 & 11.799 & \parbox[t]{4.0cm}{\raggedright nearest-real perceptual pairing; colour ADA on} & \parbox[t]{3.9cm}{\raggedright fidelity up, colour coverage halved} \\[1pt]
+6 & nocolorada & 400 & 10.204 & \parbox[t]{4.0cm}{\raggedright colour ADA off} & \parbox[t]{3.9cm}{\raggedright generation protocol selected here} \\[1pt]
+7 & ppl4 & 400 & 8.902 & \parbox[t]{4.0cm}{\raggedright path-length weight 2 to 4} & \parbox[t]{3.9cm}{\raggedright collapsed after epoch 310} \\[1pt]
+8 & rebalance & 400 & 18.464 & \parbox[t]{4.0cm}{\raggedright binary $\times 8/\times 4$ rare-colour oversampling} & \parbox[t]{3.9cm}{\raggedright colour overshoot} \\[1pt]
+9 & rebalance2 & 600 & 7.869 & \parbox[t]{4.0cm}{\raggedright inverse-frequency oversampling} & \parbox[t]{3.9cm}{\raggedright D memorisation runaway after epoch 460} \\[1pt]
+10 & edgeD & 600 & 7.868 & \parbox[t]{4.0cm}{\raggedright Sobel edge channel in D} & \parbox[t]{3.9cm}{\raggedright null result; G silently frozen for its final 20 epochs} \\[1pt]
+11 & wide2 & 212 & 14.179 & \parbox[t]{4.0cm}{\raggedright G and D widths doubled} & \parbox[t]{3.9cm}{\raggedright diverged} \\[1pt]
+12 & wide\_g2d15 & 483 & 9.004 & \parbox[t]{4.0cm}{\raggedright G $\times 2$, D $\times 1.5$} & \parbox[t]{3.9cm}{\raggedright trained; colour result confounded} \\[1pt]
+13 & sg2f & 800 & -- & \parbox[t]{4.0cm}{\raggedright five StyleGAN2-faithful changes at once} & \parbox[t]{3.9cm}{\raggedright mode collapse; measurement later invalidated} \\[1pt]
+14 & rebalance3 & 600 & 7.168 & \parbox[t]{4.0cm}{\raggedright D blurpool, horizontal flips, group minibatch std} & \parbox[t]{3.9cm}{\raggedright colour ADA re-enabled by an omitted launch flag} \\[1pt]
+15 & rebalance4 & 800 & 5.031 & \parbox[t]{4.0cm}{\raggedright colour ADA off restored} & \parbox[t]{3.9cm}{\raggedright artifact rates reach the real level} \\[1pt]
+16 & sharp1 & 1,600 & 3.583 & \parbox[t]{4.0cm}{\raggedright bicubic training resize} & \parbox[t]{3.9cm}{\raggedright best FID; plain model} \\[1pt]
+17 & mirror1 & 1,200 & 4.479 & \parbox[t]{4.0cm}{\raggedright flip-concatenation mirror coupling} & \parbox[t]{3.9cm}{\raggedright symmetry gained; pose and colour diversity lost} \\[1pt]
+18 & mirror2 & 1,200 & 4.064 & \parbox[t]{4.0cm}{\raggedright learned per-sample mirror axis} & \parbox[t]{3.9cm}{\raggedright best recall; mirror-axis model} \\[1pt]
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\caption{Validation of the symmetry metrics on synthetic silhouettes with
+known ground truth. Fixed is the boundary-band mirror IoU about the
+bounding-box centre; aligned is the same score after the axis search;
+offset is the recovered axis shift. Translations leave every value
+unchanged, so lateral placement is invisible to the offset by
+construction.}
+\label{tab:symval}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Silhouette} & \textbf{Fixed IoU} & \textbf{Aligned IoU} &
+\textbf{Offset (px)} \\
+\midrule
+Perfectly symmetric                   & 0.986 & 0.986 & 0 \\
+Tilted 2$^{\circ}$                    & 0.346 & 0.979 & $+2$ \\
+One temple 10\% shorter               & 0.551 & 0.973 & $+5$ \\
+One temple 25\% shorter               & 0.416 & 0.588 & $+8$ \\
+Tilted 2$^{\circ}$, temple 25\% shorter & 0.296 & 0.504 & $+8$ \\
+Translated $+12$ px                   & 0.986 & 0.986 & 0 \\
+Translated $-20$ px                   & 0.986 & 0.986 & 0 \\
+Temple 25\% shorter, translated $+12$ px & 0.416 & 0.588 & $+8$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \begin{adjustwidth}{-\extralength}{0cm}
 %\printendnotes[custom] % Un-comment to print a list of endnotes
 

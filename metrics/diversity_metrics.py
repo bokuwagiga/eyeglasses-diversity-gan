@@ -196,8 +196,13 @@ def mirror_axis_symmetry(silhouette, max_shift=8, max_deg=3.0, deg_step=1.0):
     if x1 - x0 < 8:
         return None
 
+    # The crop must stay centred on the bounding box. Catalogue frames reach
+    # to within a few pixels of the image edge, so the silhouette is padded
+    # first; clipping the crop at the canvas edge instead would shift its
+    # centre and mix lateral placement into the recovered offset.
     pad = max_shift + 8
-    sub = sil[max(0, y0 - pad):y1 + pad + 1, max(0, x0 - pad):x1 + pad + 1]
+    sil = np.pad(sil, pad)
+    sub = sil[y0:y1 + 2 * pad + 1, x0:x1 + 2 * pad + 1]
     if sub.size == 0:
         return None
     h, w = sub.shape
